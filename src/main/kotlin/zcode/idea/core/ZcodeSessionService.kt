@@ -672,25 +672,46 @@ class ZcodeSessionService(val project: Project) : Disposable {
             val role = msg.getAsJsonObject("info")?.get("role")?.asString ?: continue
             val parts = msg.getAsJsonArray("parts") ?: continue
             for (partEl in parts) {
-                val part = partEl.asJsonObject
-                when (part.get("type")?.asString) {
-                    "text" -> entries.add(TranscriptEntry(role, part.get("text")?.asString, null, null))
-                    "reasoning" -> entries.add(TranscriptEntry(role, null, part.get("text")?.asString, null))
-                    "tool" -> {
-                        val toolObj = part.getAsJsonObject("tool")
-                        entries.add(TranscriptEntry(role, null, null, toolObj?.get("name")?.asString))
-                        // 回填工具修改过的文件，便于 diff
-                        registerToolFromHistory(toolObj)
+                // 单个 part 解析失败只跳过该 part，绝不能让整个恢复炸掉
+                //（tool part 的形态随 runtime 版本变过：tool 曾为对象、现为字符串名，详见 PROTOCOL.md）
+                runCatching {
+                    val part = partEl.asJsonObject
+                    when (part.get("type")?.asString) {
+                        "text" -> entries.add(TranscriptEntry(role, part.get("text")?.takeIf { !it.isJsonNull }?.asString, null, null))
+                        "reasoning" -> entries.add(TranscriptEntry(role, null, part.get("text")?.takeIf { !it.isJsonNull }?.asString, null))
+                        "tool" -> {
+                            val toolEl = part.get("tool")
+                            val name = when (toolEl) {
+                                is com.google.gson.JsonPrimitive -> toolEl.asString
+                                is JsonObject -> toolEl.get("name")?.takeIf { !it.isJsonNull }?.asString
+                                else -> null
+                            } ?: "?"
+                            val input = (toolEl as? JsonObject)?.get("input")?.takeIf { it.isJsonObject }?.asJsonObject
+                                ?: part.getAsJsonObject("state")?.get("input")?.takeIf { it.isJsonObject }?.asJsonObject
+                            entries.add(TranscriptEntry(role, null, null, "🔧 $name"))
+                            // 回填工具修改过的文件，便于 diff
+                            registerToolFromHistory(name, input)
+                        }
+                        "file" -> {
+                            // 图片/附件 part：给一行可读标记，不渲染内容本身
+                            val mime = part.get("mime")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                            val fname = part.get("filename")?.takeIf { !it.isJsonNull }?.asString
+                            val label = when {
+                                mime.startsWith("image/") -> "🖼 图片附件" + (fname?.let { "（$it）" } ?: "")
+                                fname != null -> "📎 附件 $fname"
+                                mime.isNotBlank() -> "📎 附件（$mime）"
+                                else -> "📎 附件"
+                            }
+                            entries.add(TranscriptEntry(role, null, null, label))
+                        }
                     }
-                }
+                }.onFailure { log.warn("解析历史消息 part 失败（已跳过）", it) }
             }
         }
         return entries
     }
 
-    private fun registerToolFromHistory(toolObj: JsonObject?) {
-        val name = toolObj?.get("name")?.asString ?: return
-        val input = toolObj.getAsJsonObject("input") ?: return
+    private fun registerToolFromHistory(name: String, input: JsonObject?) {
         val path = filePathOf(name, input) ?: return
         registerChangedFile(path, name, oldContent = null)
     }

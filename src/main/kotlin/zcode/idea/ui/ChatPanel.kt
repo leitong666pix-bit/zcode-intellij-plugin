@@ -609,7 +609,7 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
                         entry.reasoning != null ->
                             (assistant ?: AssistantMessagePanel().also { assistant = it }).appendReasoning(entry.reasoning!!)
                         entry.toolName != null ->
-                            appendMessage(dimLabel("🔧 ${entry.toolName}").apply { border = JBUI.Borders.empty(2, 10) })
+                            appendMessage(dimLabel(entry.toolName!!).apply { border = JBUI.Borders.empty(2, 10) })
                         entry.text != null ->
                             (assistant ?: AssistantMessagePanel().also { assistant = it }).appendText(entry.text!!)
                     }
