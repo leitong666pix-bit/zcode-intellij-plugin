@@ -290,6 +290,7 @@ turn 结束
 - **结构**：toolbar（左：新会话/恢复…/变更文件(N)；右：状态标签 + 上下文占用标签 + 模型下拉(128px) + 思考强度下拉(84px, 中文映射 低/中/高/最高) + 模式下拉(104px)）+ 中央消息滚动区（`BoxLayout.PAGE_AXIS`，用户气泡靠右）+ 底部输入卡片（北侧：引用选区条 + 图片 chips 行；圆角描边卡片内嵌 JBTextArea 3 行 + 附图/停止/发送）。
 - **模式下拉文案**：逐字取自 ZCode 桌面端 i18n（app.asar 的 `mode.label.glm.*`/`mode.description.glm.*`）——build=变更前确认、edit=自动编辑、plan=计划模式、yolo=完全访问；tooltip = 官方中文名 + 官方一句说明。协议 id（build/edit/plan/yolo）只作内部存储与 `session/setMode` 参数，不直接显示。
 - **上下文占用标签**：`session/subscribe` 带 `includeSnapshot:true`，从回复 `snapshot.runtime.contextUsage.{used,size}` 驱动（如 `上下文 14k/1.0M`，tooltip 给精确值与百分比，≥80% 变红）。订阅时与每轮 `turn.completed` 后（重复 subscribe 取新快照，无事件回放副作用）各刷新一次；空会话/新会话无该字段则隐藏。
+- **工具栏自适应（ResponsiveToolbarLayout）**：宽度足够时左组（按钮）靠左、右组（标签+下拉）靠右同排一行；放不下时折成两行（左组上、右组下且仍右对齐），组内再放不下按 FlowLayout 规则继续折行——任何侧栏宽度按钮都不会被挤没。**不能用 BorderLayout+EAST**：右组固定占满自身 Preferred 宽度，窄面板下左组直接被压成 0 宽（旧版"按钮消失"bug）。preferred 高度随当前宽度计算（折行数变化高度跟着变），面板上挂 componentResized→revalidate 兜底收敛高度差一拍的问题；几何行为有确定性单元测试（`ResponsiveToolbarLayoutTest`，显式 preferredSize，headless 可跑）。
 - **空状态欢迎页**：未发消息时显示居中的官方图标 + 标题 + 说明；首条消息到达时整体移除（`chatStarted` 标志），新会话/恢复空列表时重新出现。
 - **监听器生命周期**：构造时 `service.addListener(this)`；`Content.setDisposer { panel.dispose() }` 保证工具窗口关闭时注销（同时从 `ChatPanelRegistry` 摘除）。
 - **流式渲染**：`onAssistantDelta` 惰性创建当前 `AssistantMessagePanel`（思考区可折叠，正文 Markdown 累积 + 120ms `javax.swing.Timer` 合并刷新，避免逐 token 重建 HTML）；每次追加后 `scrollToBottom()`。正文用 `WrappingHtmlPane` 按父容器实际宽度重排高度——JEditorPane 在纵向 BoxLayout 中首选高度不可靠，会因高度塌陷导致正文被裁剪甚至完全不可见。

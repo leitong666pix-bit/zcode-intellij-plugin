@@ -28,13 +28,16 @@ import zcode.idea.vfs.DiffOpener
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
+import java.awt.Container
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.LayoutManager
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
+import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
@@ -223,18 +226,14 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
 
     // ---------------------------------------------------------------- UI 组装
 
-    private fun buildToolbar(): JPanel = JPanel(BorderLayout(8, 0)).apply {
-        border = JBUI.Borders.compound(
-            JBUI.Borders.empty(4, 10, 5, 10),
-            BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
-        )
-        val left = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0)).apply {
+    private fun buildToolbar(): JPanel {
+        val left = JPanel(FlowLayout(FlowLayout.LEFT, 2, 4)).apply {
             isOpaque = false
             add(newSessionButton)
             add(resumeButton)
             add(changedFilesButton)
         }
-        val right = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0)).apply {
+        val right = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 4)).apply {
             isOpaque = false
             add(statusLabel)
             add(contextLabel)
@@ -242,8 +241,22 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
             add(thoughtCombo)
             add(modeCombo)
         }
-        add(left, BorderLayout.CENTER)
-        add(right, BorderLayout.EAST)
+        return JPanel(ResponsiveToolbarLayout(left, right)).apply {
+            isOpaque = false
+            border = JBUI.Borders.compound(
+                JBUI.Borders.empty(4, 10, 5, 10),
+                BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
+            )
+            add(left)
+            add(right)
+            // 父容器（BorderLayout NORTH）按 Preferred 高度给空间，而算高度时宽度可能还是旧值，
+            // 折行数会差一拍；这里补一手保证最终收敛到正确高度
+            addComponentListener(object : ComponentAdapter() {
+                override fun componentResized(e: ComponentEvent) {
+                    if (height != preferredSize.height) revalidate()
+                }
+            })
+        }
     }
 
     private fun buildContent(): JPanel = JPanel(BorderLayout(0, 0)).apply {
@@ -882,4 +895,91 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
                 super.paintComponent(g)
             }
         }
+}
+
+/**
+ * 工具栏自适应布局：宽度足够时左组（新会话/恢复/变更文件）靠左、右组（状态/上下文/下拉）靠右同排一行；
+ * 放不下时折成两行——左组在上、右组在下（仍右对齐），组内再放不下时按 FlowLayout 规则继续折行。
+ *
+ * 不能用 BorderLayout+EAST：右组会固定占满自身 Preferred 宽度，侧栏一窄左组就被压到 0 宽，
+ * 按钮全部"消失"（旧版问题）。preferredLayoutSize 依据 target 当前宽度计算折行后的高度
+ * （宽度未知时按单行估算），配合工具栏上的 componentResized→revalidate 兜底收敛。
+ */
+internal class ResponsiveToolbarLayout(
+    private val leftGroup: JComponent,
+    private val rightGroup: JComponent,
+) : LayoutManager {
+
+    private fun singleRowHeight(): Int =
+        maxOf(leftGroup.preferredSize.height, rightGroup.preferredSize.height)
+
+    /** 组在给定宽度内按 FlowLayout 折行需要的高度（各组件行高近似一致，用组单行高 × 行数）。 */
+    private fun wrappedHeight(group: JComponent, width: Int): Int {
+        val fl = group.layout as? FlowLayout ?: return group.preferredSize.height
+        val kids = group.components
+        if (kids.isEmpty()) return 0
+        var rows = 1
+        var x = 0
+        for (i in kids.indices) {
+            if (i > 0) x += fl.hgap
+            val w = kids[i].preferredSize.width
+            if (x > 0 && x + w > width) {
+                rows++
+                x = 0
+            }
+            x += w
+        }
+        val rowH = group.preferredSize.height
+        return rows * rowH + (rows - 1) * fl.vgap
+    }
+
+    override fun preferredLayoutSize(target: Container): Dimension {
+        val ins = target.insets
+        val lw = leftGroup.preferredSize.width
+        val rw = rightGroup.preferredSize.width
+        val singleW = ins.left + lw + GROUP_GAP + rw + ins.right
+        val singleH = ins.top + singleRowHeight() + ins.bottom
+        val width = if (target.width > 0) target.width else singleW
+        if (singleW <= width) return Dimension(singleW, singleH)
+        val avail = width - ins.left - ins.right
+        val stackedH = ins.top +
+                wrappedHeight(leftGroup, avail) + ROW_GAP +
+                wrappedHeight(rightGroup, avail) + ins.bottom
+        return Dimension(singleW, stackedH)
+    }
+
+    override fun minimumLayoutSize(target: Container): Dimension = preferredLayoutSize(target)
+
+    override fun layoutContainer(target: Container) {
+        val ins = target.insets
+        val avail = target.width - ins.left - ins.right
+        if (avail <= 0) {
+            leftGroup.bounds = Rectangle(0, 0, 0, 0)
+            rightGroup.bounds = Rectangle(0, 0, 0, 0)
+            return
+        }
+        val lw = leftGroup.preferredSize.width
+        val rw = rightGroup.preferredSize.width
+        if (lw + GROUP_GAP + rw <= avail) {
+            val h = maxOf(singleRowHeight(), target.height - ins.top - ins.bottom)
+            leftGroup.bounds = Rectangle(ins.left, ins.top, lw, h)
+            rightGroup.bounds = Rectangle(target.width - ins.right - rw, ins.top, rw, h)
+        } else {
+            val leftH = wrappedHeight(leftGroup, avail)
+            leftGroup.bounds = Rectangle(ins.left, ins.top, avail, leftH)
+            val rightH = wrappedHeight(rightGroup, avail)
+            rightGroup.bounds = Rectangle(ins.left, ins.top + leftH + ROW_GAP, avail, rightH)
+        }
+    }
+
+    override fun addLayoutComponent(name: String?, comp: Component?) {}
+    override fun removeLayoutComponent(comp: Component?) {}
+
+    private companion object {
+        /** 单行模式下左右两组之间的最小间距。 */
+        const val GROUP_GAP = 10
+
+        /** 折行模式下两行之间的行距。 */
+        const val ROW_GAP = 4
+    }
 }
