@@ -338,7 +338,7 @@ plugins { id("java"); id("org.jetbrains.kotlin.jvm") version "2.2.10"; id("org.j
 dependencies {
     intellijPlatform {
         local("D:/IntelliJ/IntelliJ IDEA 2025.2.4")   // 本机 IDE，零下载
-        // intellijIdea("2024.3")                       // 换机器：远程拉取（1-2GB）
+        // intellijIdea("2024.3")                       // 换机器/CI：远程拉取（1-2GB），基线=最低支持版本
     }
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation("junit:junit:4.13.2")   // ★ 平台 JUnit5 初始化器内部引用 JUnit4 类，缺了直接 NoClassDefFound
@@ -350,7 +350,7 @@ intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "243"; until
 
 - `kotlin.stdlib.default.dependency=false`：平台自带 Kotlin stdlib，插件不重复打包。
 - 国内网络：仓库加阿里云镜像（gradle-plugin/public）；**wrapper 发行版用腾讯镜像**（`services.gradle.org` 会 302 到不可达的 github.com）。
-- **兼容面**：编译基于本机 2025.2.4（IU-252），`sinceBuild=243`（2024.3+）；所用 API 均为 243 期已有的稳定面（EditorFactory/WriteCommandAction 未用、DiffManager、JCEF 未用）。严格校验可后续跑 `runPluginVerifier`。
+- **兼容面**：`sinceBuild=243`（2024.3+），CI 以 2024.3 为编译基线，本地用 2025.2.4。唯一的版本敏感点是 `JBHtmlPane`：其无参构造是 252 新增（CI 曾以 2024.3 编译报 `No value passed for parameter 'myStyleConfiguration'`），代码改用 243/252 两端共有的 `JBHtmlPane(JBHtmlPaneStyleConfiguration(), JBHtmlPaneConfiguration())` 两参构造（javap 对比两版本 jar 实证）；其内置 kit 由 `HTMLEditorKitBuilder.build()` 产出，返回类型为 Swing 原生 `HTMLEditorKit`，样式注入路径两版本一致。其余 API 均为 243 期已有稳定面。严格校验可后续跑 `runPluginVerifier`（243–252 各档）。
 
 ### 9.2 构建用 JDK 的坑（本机实测）
 

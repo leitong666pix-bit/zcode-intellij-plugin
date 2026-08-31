@@ -16,7 +16,9 @@ repositories {
 dependencies {
     intellijPlatform {
         if (System.getenv("CI") == "true") {
-            // CI（GitHub Actions）：远程拉取平台依赖（约 1-2GB，有缓存）
+            // CI（GitHub Actions）：远程拉取平台依赖（约 1-2GB，有缓存）。
+            // 基线取最低支持版本 2024.3：在此编译通过即可保证 sinceBuild=243 全程可运行
+            // （JBHtmlPane 用的是 243/252 共有的两参构造，见 ChatUi.kt）。
             intellijIdea("2024.3")
         } else {
             // 本机开发：直接用本地安装的 IDEA，零下载

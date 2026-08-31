@@ -35,7 +35,7 @@ IDEA 插件（Kotlin）
 
 ## 前置条件
 
-- IntelliJ IDEA 2024.3+（构建基于本机 IDEA 2025.2.4）
+- IntelliJ IDEA 2024.3+（CI 以 2024.3 为编译基线，本地开发用 2025.2.4，两端 javap 实证过公共 API）
 - JDK 21（用于构建；运行由 IDE 自带 JBR）
 - Node.js >= 22.19（需内置 `node:sqlite`，删除历史会话时用到）
 - zcode 运行时（自动探测顺序如下，均可在设置页覆盖）：
@@ -57,8 +57,8 @@ export JAVA_HOME="C:/Users/<你>/.jdks/corretto-21.0.12.1"
 
 IDEA 中安装：Settings → Plugins → ⚙ → Install Plugin from Disk → 选择上面的 zip。
 
-> 构建默认使用本机 IDEA（`build.gradle.kts` 中 `intellijIdeaLocal("D:/IntelliJ/...")`）。
-> 换机器时改为 `intellijIdea("2024.3")`（联网下载平台依赖）。
+> 构建默认使用本机 IDEA（`build.gradle.kts` 中 `local("D:/IntelliJ/...")`）。
+> 换机器时改为 `intellijIdea("2024.3")`（联网下载平台依赖；基线取最低支持版本）。
 
 开发调试：`./gradlew.bat runIde`（沙箱 IDE）。
 

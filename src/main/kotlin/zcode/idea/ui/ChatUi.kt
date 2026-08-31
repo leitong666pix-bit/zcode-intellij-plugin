@@ -4,6 +4,8 @@ import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBHtmlPane
+import com.intellij.ui.components.JBHtmlPaneConfiguration
+import com.intellij.ui.components.JBHtmlPaneStyleConfiguration
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBFont
@@ -122,7 +124,9 @@ fun readOnlyArea(foreground: Color? = null): WrappingTextArea = WrappingTextArea
  * JEditorPane 在纵向 BoxLayout 里首选高度不可靠（按“整行不换行”的超宽排版，实际渲染宽度窄得多，
  * 分到的高度装不下内容，表现为正文被裁剪甚至完全不可见），这里在 preferredSize 里按父容器宽度重新排版。
  */
-class WrappingHtmlPane : JBHtmlPane() {
+class WrappingHtmlPane : JBHtmlPane(JBHtmlPaneStyleConfiguration(), JBHtmlPaneConfiguration()) {
+    // 不能用 252 新增的无参构造 JBHtmlPane()：243 平台只有两参构造（javap 实证），
+    // 编译基线是 2024.3，必须走两个版本共有的构造路径
     private var cacheKey = -1L
     private var cachedHeight = 0
 
