@@ -6,6 +6,14 @@
 
 > 📐 想了解架构与具体实现，请阅读 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**（模块职责、协议事件流、线程模型、设计决策、构建坑）；协议逆向细节见 [docs/PROTOCOL.md](docs/PROTOCOL.md)。
 
+## 下载安装
+
+从 [Releases](../../releases/latest) 下载最新的 `zcode-idea-plugin-<版本>.zip`，然后：
+
+**Settings → Plugins → ⚙ → Install Plugin from Disk... → 选中 zip → 重启 IDE**
+
+> 安装包未上架 JetBrains Marketplace（需官方审核），Release 由 CI 在打 tag 时自动构建。
+
 <p align="center">
   <img src="docs/images/ui-overview.png" width="800" alt="插件界面：右侧 ZCode 工具窗口聊天面板（模型/思考强度切换、流式输出、工具调用卡片）">
 </p>

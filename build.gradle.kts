@@ -15,9 +15,13 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        local("D:/IntelliJ/IntelliJ IDEA 2025.2.4")
-        // 本机未安装该版本 IDE 时，可注释上一行并启用下一行（需联网下载约 1-2GB）
-        // intellijIdea("2024.3")
+        if (System.getenv("CI") == "true") {
+            // CI（GitHub Actions）：远程拉取平台依赖（约 1-2GB，有缓存）
+            intellijIdea("2024.3")
+        } else {
+            // 本机开发：直接用本地安装的 IDEA，零下载
+            local("D:/IntelliJ/IntelliJ IDEA 2025.2.4")
+        }
     }
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     // IntelliJ Platform 的 JUnit5 测试环境初始化器（Logger 工厂）依赖 JUnit4 的类
