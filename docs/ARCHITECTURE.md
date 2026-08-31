@@ -42,10 +42,10 @@
 │                                                                             │
 │  表现层（ui/，全部 EDT）                                                     │
 │  ┌───────────────────────────────────────────────────────────────────┐     │
-│  │ ZcodeToolWindowFactory → ChatPanel                                │     │
-│  │  ├ 工具栏：新会话 / 恢复… / 变更文件(N) / 模式下拉 / 状态标签        │     │
+│  │ ZcodeToolWindowFactory → ChatPanel（注册入 ChatPanelRegistry）                               │     │
+│  │  ├ 工具栏：新会话/恢复…/变更文件(N) ＋ 模型/思考强度/模式下拉        │     │
 │  │  ├ 消息流：UserMessagePanel / AssistantMessagePanel / ToolCallPanel │     │
-│  │  ├ 输入区：JBTextArea + 发送/停止                                   │     │
+│  │  ├ 输入区：引用条/图片chips + JBTextArea + 附图/发送/停止                                   │     │
 │  │  └ PermissionDialog（模态审批）                                      │     │
 │  └──────────────▲──────────────────────────────┬──────────────────────┘     │
 │                 │ Listener 回调(EDT)            │ send()/stop()/...         │
@@ -54,7 +54,7 @@
 │  │ ZcodeSessionService (@Service(Project), Disposable)               │     │
 │  │  ├ 状态机 DISCONNECTED→STARTING→READY⇄RUNNING / DEAD                │     │
 │  │  ├ 协议事件翻译：session/event → 语义回调                            │     │
-│  │  ├ 权限审批队列（串行弹窗）                                          │     │
+│  │  ├ 权限审批队列（串行弹窗）＋ 会话删除(node:sqlite)                                          │     │
 │  │  └ 文件追踪：首改前快照 + 变更文件表                                 │     │
 │  │        │ 持有                                                       │     │
 │  │        ▼                                                            │     │
@@ -64,7 +64,7 @@
 │  └──────────────┬────────────────────────────────────────────────────┘     │
 │                 │ spawn: node <zcode.cjs> app-server --cwd <项目根>         │
 │  支撑层           ▼                                                        │
-│  ├ runtime/RuntimeResolver：node + zcode.cjs 自动探测（设置页可覆盖）        │
+│  ├ runtime/RuntimeResolver：node + zcode.cjs 自动探测（桌面端优先，可覆盖）        │
 │  ├ context/SelectionContext：发送时 ReadAction 采集选区/活动文件            │
 │  ├ vfs/DiffOpener：DiffManager + DiffContentFactory 原生 diff              │
 │  └ settings/ZcodeSettings(+Configurable)：应用级持久化设置                  │
@@ -93,21 +93,22 @@ zcode-idea-plugin/
 ├── build.gradle.kts / settings.gradle.kts / gradle.properties     构建配置（§9）
 ├── docs/
 │   ├── PROTOCOL.md               ZCode Protocol 逆向笔记（协议权威参考）
-│   ├── probe-artifacts/          三轮协议探针的原始数据（事件样本等）
+│   ├── probe-artifacts/          多轮协议探针的原始数据（事件样本等）
 │   └── ARCHITECTURE.md           本文档
 ├── src/main/resources/META-INF/plugin.xml   扩展点注册（§4）
-├── src/main/resources/icons/zcode.svg       ToolWindow 图标
+├── src/main/resources/icons/                ZCode 官方图标（桌面端 icon.png 缩放）：zcodeTool.png(13)/zcode.png(24) + @2x
 ├── src/main/kotlin/zcode/idea/
-│   ├── runtime/RuntimeResolver.kt           ★ 运行时探测
+│   ├── runtime/RuntimeResolver.kt           ★ 运行时探测（桌面端优先 → npm 回退）
 │   ├── core/AppServerClient.kt              ★ JSON-RPC 客户端（传输层）
+│   ├── core/ZcodeCliConfig.kt               ★ ~/.zcode 配置解析 → runtimeModel/模型能力
 │   ├── core/ZcodeSessionService.kt          ★ 会话服务（领域层/粘合层）
-│   ├── context/SelectionContext.kt          IDE 上下文采集
+│   ├── context/SelectionContext.kt          IDE 上下文采集 + 上下文块拆分
 │   ├── vfs/DiffOpener.kt                    原生 diff 呈现
-│   ├── ui/ZcodeToolWindowFactory.kt         ToolWindow 入口
+│   ├── ui/ZcodeToolWindowFactory.kt         ToolWindow 入口 + ChatPanelRegistry
 │   ├── ui/ChatPanel.kt                      聊天面板（最大 UI 文件）
 │   ├── ui/MessageComponents.kt              三种消息组件
 │   ├── ui/PermissionDialog.kt               审批对话框
-│   ├── actions/ZcodeEditorActions.kt        编辑器右键动作组
+│   ├── actions/ZcodeEditorActions.kt        编辑器右键动作组（含引用选中代码）
 │   └ settings/ZcodeSettings.kt / ZcodeConfigurable.kt   设置
 └── src/test/kotlin/zcode/idea/core/AppServerClientTest.kt   传输层单测（管道假进程）
 ```
@@ -120,11 +121,12 @@ zcode-idea-plugin/
 
 ```xml
 <toolWindow id="ZCode" anchor="right" factoryClass="zcode.idea.ui.ZcodeToolWindowFactory"
-            icon="icons/zcode.svg" canCloseContents="false"/>
+            icon="icons/zcodeTool.png" canCloseContents="false"/>
 <applicationConfigurable parentId="tools" displayName="ZCode"
                          instance="zcode.idea.settings.ZcodeConfigurable"/>
 <notificationGroup id="ZCode" displayType="BALLOON"/>
 <group id="Zcode.EditorActions" popup="true" text="ZCode">
+    <action id="Zcode.AttachSelection" .../>  引用选中代码到对话...（挂为待发上下文，不直接发送）
     <action id="Zcode.ExplainSelection" .../>   解释选中的代码
     <action id="Zcode.ImproveSelection" .../>   优化选中的代码
     <action id="Zcode.WriteTests" .../>         为选中代码写测试
@@ -133,6 +135,7 @@ zcode-idea-plugin/
 </group>
 ```
 
+- `AttachSelectionAction` 经 `ChatPanelRegistry`（工厂创建面板时注册、Disposer 注销）把选区投递到当前项目的 ChatPanel。
 - 服务不注册在 XML：`ZcodeSessionService` 用 `@Service(Service.Level.PROJECT)` 注解（Kotlin 构造注入 `Project`），实现 `com.intellij.openapi.Disposable`，随项目关闭自动 `dispose()` → 杀子进程。
 - `ZcodeSettings` 用 `@Service(Service.Level.APP)` + `@State(storages=[Storage("zcode-idea.xml")])`（运行时路径是机器属性，故为应用级）。
 
@@ -185,28 +188,31 @@ DISCONNECTED ──ensureConnected()──► STARTING ──创建/恢复会话
                                     （下次 send 自动重启进程并 resume 会话）
 ```
 
-`ensureConnected()`：双重检查锁（`startLock`）；已活复用；否则 `RuntimeResolver.resolve()` → spawn → `createOrResumeSession()`：
+`ensureConnected()`：双重检查锁（`startLock`）；**连接存活但 `sessionId` 为空（如刚点过"新会话"）时在现有连接上补建会话**——初版在这里直接短路返回，导致"新会话"后所有发送报"会话未就绪"且重试无效。冷启动路径：`RuntimeResolver.resolve()` → spawn → `syncModelCatalog()` → `createOrResumeSession()`：
 
-1. 有旧 `sessionId` → 先试 `session/resume`（参数形状已对照 zcode.cjs 源码确认；失败自动回退新建，日志记录）；
-2. 否则 `session/create {workspace:{workspaceKey,workspacePath}, mode}` → 取 `result.session.sessionId`（resume 成功但响应缺 sessionId 时回退用原 id）；
-3. `session/subscribe {sessionId, deliveryKind:"desktop-continuous"}`（**不传 afterSeq**）—— 不订阅则收不到带正文的事件（只有 telemetry）；而传 `afterSeq:0` 会让服务端回放该 seq 之后的**全部历史事件**（源码逻辑：`afterSeq === undefined` 才不回放），恢复会话时会把整段转录再推一遍、UI 重复渲染。
+1. **模型目录回推**（`syncModelCatalog`）：`ZcodeCliConfig.load()` 解析 `~/.zcode/cli/config.json`（provider/模型/baseURL/apiKey）并合并 `~/.zcode/v2/config.json` 的 modalities（supportsImages），对每个模型各发一次 `workspace/readState{runtimeModel}`（服务端合并逻辑每次只保留被选模型，必须逐个推），再纯读一次拿权威的可用模型/思考强度列表喂给 UI。**不回推的后果**：resume 历史会话时沿用历史里已下线的模型 → 服务端置 restoreWarning → 所有发送 -32031（"历史任务使用的模型已不可用"，根因见 PROTOCOL.md「模型目录」）。
+2. 有旧 `sessionId` → 先试 `session/resume`（**params 必带 runtimeModel**，覆盖历史模型、根治 -32031；失败自动回退新建，日志记录）；
+3. 否则 `session/create {workspace, mode, model}`（model = 用户偏好或 CLI 配置默认）→ 取 `result.session.sessionId`；建好后若存有思考强度偏好，补一发 `session/setThoughtLevel`（create 参数不支持该字段）；
+4. `session/subscribe {sessionId, deliveryKind:"desktop-continuous"}`（**不传 afterSeq**）—— 不订阅则收不到带正文的事件（只有 telemetry）；而传 `afterSeq:0` 会让服务端回放该 seq 之后的**全部历史事件**（源码逻辑：`afterSeq === undefined` 才不回放），恢复会话时会把整段转录再推一遍、UI 重复渲染。
 
-进程崩溃自愈：`onExited` → DEAD；下一次 `send()` 走 `ensureConnected()` 重建（resume 保会话历史）。`restartProcess()` 供 UI 主动重置。
+进程崩溃自愈：`onExited` → DEAD；下一次 `send()` 走 `ensureConnected()` 重建（resume 保会话历史）。`restartProcess()` 供 UI 主动重置。`prewarm()` 在工具窗口打开时后台拉起，消除首次 ~2s 冷启动。
 
 ### 6.2 发送链路（一次提问的完整时序）
 
 ```
-[EDT] ChatPanel.doSend() ─► service.send(text)
-        ① ReadAction.compute { SelectionContext.capture(project) }   ← 必须在 EDT 读编辑器
-        ② contextBlock = buildBlock(选区/活动文件/打开文件, maxChars)     可为 null（设置关/无上下文）
-        ③ fire { onUserEcho(text, withContext) }                       ← 同步回显，先于一切异步事件
-[pooled] ④ ensureConnected()（必要时 spawn+create+subscribe）
-        ⑤ state=RUNNING；session/send {sessionId, content = text + contextBlock}
-              └─ 返回 {accepted:true} 即返回，后续走通知流
+[EDT] ChatPanel.doSend() ─► service.send(text, explicitContext?, images)
+        ① 上下文块：explicitContext（右键引用的选区，优先）或自动采集
+             ReadAction.compute { SelectionContext.capture(project) }   ← 必须在 EDT 读编辑器
+        ② 图片：每张追加内嵌 Markdown 引用 "\n\n![name](file:///C:/...png)"
+             （attachments 字段不适用，见 PROTOCOL.md「图片输入」；当前模型不支持图像则拦截提示）
+        ③ fire { onUserEcho(text, 图片引用+上下文块) }                  ← 同步回显（上下文在气泡下方折叠）
+[pooled] ④ ensureConnected()（存活但无会话则补建；冷启动则 spawn+回推目录+create+subscribe）
+        ⑤ state=RUNNING；session/send {sessionId, content = text + 图片md + contextBlock}
+              └─ 返回 {accepted:true} 即返回，后续走通知流（图片文件不能删——runtime 回合内才读取）
 [reader] ⑥ 逐事件到达（见 6.3）→ fire(onEdt) → ChatPanel 渲染
 ```
 
-`send()` 在 RUNNING 时直接拒绝并提示（协议 -32010 亦会拒绝并发 prompt；UI 同时禁用发送按钮，双保险）。
+`send()` 在 RUNNING 时直接拒绝并提示；发送异常时的重试链：`-32010`（上轮未结束）→ `session/stop` 后重发一次；`-32031`（模型不可用，理论上已被目录回推根治）→ `session/fork` 派生继承历史的新会话继续（兜底）。
 
 ### 6.3 协议事件 → 语义回调对照表
 
@@ -268,7 +274,12 @@ turn 结束
 
 ### 6.6 其他 API
 
-`stopCurrentTurn()`（session/stop）、`newSession()`（清空追踪+session/close 旧会话+懒重建）、`resumeSession(id)`（先 `activateSession`：`session/resume` 激活 → `subscribe` → **两步都成功后才设 `sessionId`**，部分失败可整体重试；再 `session/read` 转录渲染：user=text parts；assistant=step-start/reasoning/tool/text/step-finish 逐条映射。注意不能依赖 `ensureConnected()` 顺带激活——客户端已存活时它会短路返回，目标会话从未 resume，`session/read` 直接抛 `Session is not active`）、`listSessions()`（session/list {workspace}，倒序含标题/模式/时间）、`setMode()`（记内存 + session/setMode 尽力而为，失败静默）。
+- `stopCurrentTurn()`（session/stop）。
+- `newSession()`：清空追踪 + `session/close` 旧会话 + `sessionId=null`；**下一次 `ensureConnected()` 会在存活连接上补建新会话**（带偏好模型）。
+- `resumeSession(id)`：`activateSession`（`session/resume` **带 runtimeModel + thoughtLevel 偏好** → `subscribe` → 两步都成功后才设 `sessionId`）→ `session/read` 转录渲染。渲染规则与实时一致：同一轮的 reasoning/text 归入**同一个** AssistantMessagePanel（思考折叠、正文一份，只有一个 ZCode 头）；user 消息经 `SelectionContext.splitContext` 拆出注入的上下文块折叠展示。
+- `listSessions()`：session/list {workspace}，倒序含标题/模式/时间。
+- `selectModel(option)` / `selectThoughtLevel(value)`：持久化到设置 + `session/setModel`/`session/setThoughtLevel` 尽力同步当前会话 + `onModelsChanged` 刷新 UI（附图入口按 supportsImages 启停）。
+- `deleteSession(id)`：协议无删除 RPC —— `session/close`（尽力）→ 若删的是当前会话则本地重置 → spawn node 用内置 `node:sqlite` 执行 `DELETE FROM session WHERE id=?`（WAL 并发下 `PRAGMA busy_timeout=5000`，消息/部件外键级联清零，实测）。
 
 ---
 
@@ -276,11 +287,12 @@ turn 结束
 
 ### 7.1 ChatPanel（SimpleToolWindowPanel，vertical）
 
-- **结构**：toolbar（新会话/恢复…/变更文件(N)/紧凑模式下拉——只显示简短模式名、完整说明放 tooltip，左侧用 FlowLayout 摆放避免组件被拉伸 + 右侧状态标签）+ 中央消息滚动区（`BoxLayout.PAGE_AXIS` 的动态面板，用户消息右对齐）+ 底部输入卡片（圆角描边卡片内嵌 JBTextArea 3 行 + 停止/发送按钮，占位文案"询问 ZCode…"）。
-- **空状态欢迎页**：未发消息时显示居中的图标 + 标题 + 说明；首条消息到达时整体移除（`chatStarted` 标志），新会话/恢复空列表时重新出现。
-- **监听器生命周期**：构造时 `service.addListener(this)`；`Content.setDisposer { panel.dispose() }` 保证工具窗口关闭时注销。
+- **结构**：toolbar（左：新会话/恢复…/变更文件(N)；右：状态标签 + 模型下拉(128px) + 思考强度下拉(84px, 中文映射 低/中/高/最高) + 模式下拉(92px)）+ 中央消息滚动区（`BoxLayout.PAGE_AXIS`，用户气泡靠右）+ 底部输入卡片（北侧：引用选区条 + 图片 chips 行；圆角描边卡片内嵌 JBTextArea 3 行 + 附图/停止/发送）。
+- **空状态欢迎页**：未发消息时显示居中的官方图标 + 标题 + 说明；首条消息到达时整体移除（`chatStarted` 标志），新会话/恢复空列表时重新出现。
+- **监听器生命周期**：构造时 `service.addListener(this)`；`Content.setDisposer { panel.dispose() }` 保证工具窗口关闭时注销（同时从 `ChatPanelRegistry` 摘除）。
 - **流式渲染**：`onAssistantDelta` 惰性创建当前 `AssistantMessagePanel`（思考区可折叠，正文 Markdown 累积 + 120ms `javax.swing.Timer` 合并刷新，避免逐 token 重建 HTML）；每次追加后 `scrollToBottom()`。正文用 `WrappingHtmlPane` 按父容器实际宽度重排高度——JEditorPane 在纵向 BoxLayout 中首选高度不可靠，会因高度塌陷导致正文被裁剪甚至完全不可见。
-- **交互细节**：Enter 发送 / Shift+Enter 换行（KeyListener 拦截）；RUNNING 时禁发送、启停止；恢复/变更文件用 `JBPopupFactory.createPopupChooserBuilder`（回调收**列表项字符串**，用 label→对象反查）。
+- **附图**：Ctrl+V（剪贴板 imageFlavor → BufferedImage → `%TEMP%/zcode-idea-images/paste-*.png`）或「附图」按钮（FileChooser，png/jpg/jpeg/gif/webp/bmp）；chips = 32px 缩略图 + 文件名 + 移除；发送后清 chip 但**不删临时文件**（send 提前返回、runtime 回合内才读文件）。入口按当前模型 `supportsImages` 启停；`addImage` 时若不支持弹提示。
+- **恢复下拉**：自绘行列表（非 PopupChooserBuilder）——每行 `[时间] 标题 · 模式` + 🗑；整行点击恢复（监听同时挂 row/label/删除键，鼠标事件只派发最深层组件）；删除走确认对话框 → `deleteSession` → 原地重拉列表重绘。**悬停高亮必须用不透明纯色**（列表底色↔选中色）——半透明色在 opaque 切换时不清底，反复悬停会叠加残影/花字（初版实测翻车点）。
 - 状态标签带彩色圆点映射五态：未连接（灰）/启动 zcode…（灰）/就绪（绿）/运行中…（蓝）/DEAD 详情（红）。
 
 ### 7.2 消息组件（MessageComponents + ChatUi 共享基础）
@@ -289,7 +301,7 @@ turn 结束
 
 | 组件 | 视觉 | 行为 |
 |---|---|---|
-| `UserMessagePanel` | 浅蓝圆角气泡（`userBubble`）靠右对齐，宽度按内容自适应（上限约 78% 容器宽）+ 灰字"⧉ 已附带 IDE 上下文"标记 | 纯展示；`alignmentX=RIGHT` + 最大宽度=首选宽度，纵向 BoxLayout 才不会把气泡拉满整行 |
+| `UserMessagePanel` | 浅蓝圆角气泡（`userBubble`）靠右对齐，宽度按内容自适应（上限约 70% 视口宽，按最宽一行测宽）；有上下文时气泡下方整行宽的折叠"IDE 上下文 · N 字"（默认收起，点击展开灰字小号正文） | 纯展示；`alignmentX=RIGHT` + 最大宽度=首选宽度，纵向 BoxLayout 才不会把气泡拉满整行；上下文折叠区复用 `CollapsibleSection`，与思考过程同交互 |
 | `AssistantMessagePanel` | 粗体 ZCode 头部 + 可折叠"思考过程"（灰字 + 左侧竖线引用样式；流式时展开、结束时仅思考区收起并显示字数）+ 正常前景色 Markdown 正文（代码块带底色）+ 灰色小字脚注 | `appendReasoning/appendText/done(summary)`；正文 flush 走 120ms 节流 |
 | `ToolCallPanel` | 圆角卡片：状态图标（动画/✔/✘/⊘）+ 粗体工具名 + 灰色目标摘要 | tooltip=入参 JSON；点击若有 filePath 则在编辑器打开 |
 
@@ -366,6 +378,12 @@ intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "243"; until
 4. **插件不分发 runtime**：只做发现（zcode-app-cli → 桌面端 → 设置覆盖），规避第三方包重分发与版本耦合问题。
 5. **`-32601` 回绝 runtimePreferences**：协议源码中该错误码触发官方默认值兜底（探针验证），是官方预留的"客户端不支持"路径。
 6. **审批回传 option.response 原样透传**：不自行构造 decision 结构，最大化兼容未来 option 语义（如 modify/always）。
+7. **模型目录由客户端回推**（`syncModelCatalog`）：app-server 进程内目录初始为空是协议设计（CLI/桌面端都会推），不推则 resume 必炸 -32031、setModel 受限。逐模型推 `workspace/readState{runtimeModel}` 而非 `updateProviderRegistry`：后者只收 apiKeyRef（无 inline key）会破坏鉴权。**provider 必须带 baseURL**，否则目录 overlay 直接抛错（probe 实测）。
+8. **resume 显式带 runtimeModel**：覆盖服务端从历史扫出的旧模型，从源头杜绝 restoreWarning；-32031→fork 仅作兜底保留。
+9. **图片走消息文本内嵌 Markdown 引用**：`attachments` 只认服务端 artifact 引用且无上传 RPC（裸路径被静默丢弃，probe 实测）；`![name](file:///…)` 由 runtime 物化成图像块，多模态可见、非多模态优雅降级。能力标识从 v2 配置 modalities 合并随目录推送。
+10. **删除会话直写 sqlite**：协议无删除 RPC；`session` 表外键级联 + node 内置 `node:sqlite`（无需给插件引入 JDBC 依赖），busy_timeout 兼容 WAL 并发。
+11. **runtime 探测桌面端优先**：官方桌面端与 npm 包同源可互换（探针全链路验证），优先桌面端可摆脱第三方依赖；npm 作回退兼顾未装桌面端的机器。
+12. **悬停高亮用不透明纯色**：半透明色 + opaque 切换在 Swing 下不清底，反复悬停叠加残影（会话列表初版翻车点）。
 
 ---
 
@@ -375,7 +393,9 @@ intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "243"; until
 - Markdown 渲染为轻量自研（代码块无语法高亮）；工具参数 tooltip 为原始 JSON。
 - 运行中不支持排队消息；每项目一个会话进程。
 - ApplyPatch 输入不解析路径（不进变更文件表）；恢复历史回填的文件无旧内容（diff 左侧为空）。
+- 图片临时文件（`%TEMP%/zcode-idea-images/`）发送后不清理（runtime 异步读取），依赖系统清理临时目录。
 - 设置为应用级（跨项目共享运行时路径）；无国际化文件（硬编码中文）。
+- Settings → Plugins 列表里的插件条目图标（`pluginIcon.svg`）缺失：平台只收 SVG，官方只有 PNG，暂用 IDE 默认图标。
 
 **路线图**
 1. **Phase 6a（协议已支持）**：IDE 内起 http/sse MCP server 暴露 `getDiagnostics`（IDEA 诊断）等工具，注册到项目级 `.zcode/config.json` 的 `mcp.servers`（bundle 静态分析已确认支持 `type:"http"|"sse"` + url 配置）。
@@ -391,9 +411,11 @@ intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "243"; until
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `nodePath` | ""（自动） | node.exe 完整路径；空→ `where node` → 常见安装位置 |
-| `runtimePath` | ""（自动） | zcode.cjs 路径；空→ ① `%APPDATA%\npm\node_modules\zcode-app-cli\vendor\zcode.cjs` ② `where zcode` shim 反推同级 node_modules ③ 桌面端常见路径（含 `D:\Tools\ZCode\resources\glm\zcode.cjs`） |
+| `runtimePath` | ""（自动） | zcode.cjs 路径；空→ ① ZCode 桌面端常见路径（`%LOCALAPPDATA%\Programs\ZCode`、`C:\Program Files\ZCode`、`D:\Tools\ZCode` 的 `resources\glm\zcode.cjs`）② npm 全局 `zcode-app-cli\vendor\zcode.cjs` ③ `where zcode` shim 反推 |
 | `defaultMode` | `edit` | build/edit/plan/yolo（create 时传入；运行中可切，session/setMode 尽力同步） |
 | `injectSelectionContext` | true | 发送时自动附 IDE 上下文 |
 | `maxSelectionChars` | 8000 | 选区注入截断上限 |
+| `preferredModelProvider` / `preferredModelId` | ""（CLI 默认） | 工具栏模型下拉的选择；create 的 `model` 参数与 resume 的 runtimeModel 用它 |
+| `preferredThoughtLevel` | ""（服务端默认） | 思考强度下拉的选择；建会话后 setThoughtLevel 应用、resume 参数下发 |
 
 **环境自检**：Settings → Tools → ZCode → 「检测环境」→ 后台跑探测 → 气泡报告 Node/Runtime 及来源。
