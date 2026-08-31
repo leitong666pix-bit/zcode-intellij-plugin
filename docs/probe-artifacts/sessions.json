@@ -1,0 +1,34 @@
+{
+ "sessions": [
+  {
+   "createdAt": 1787886576803,
+   "mode": "build",
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "sessionKind": "interactive",
+   "status": "idle",
+   "title": "Requesting exact OK reply",
+   "titleSource": "generated",
+   "updatedAt": 1787886585751,
+   "workspace": {
+    "workspacePath": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws",
+    "workspaceKey": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"
+   }
+  },
+  {
+   "createdAt": 1787885979120,
+   "mode": "build",
+   "traceId": "678a017e-9236-47a7-b013-73674bf4baf2",
+   "sessionId": "sess_4c8bf45f-30a3-4d59-8cef-27d8e66692aa",
+   "sessionKind": "interactive",
+   "status": "idle",
+   "title": "Create ok.txt file",
+   "titleSource": "generated",
+   "updatedAt": 1787885982444,
+   "workspace": {
+    "workspacePath": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws",
+    "workspaceKey": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"
+   }
+  }
+ ]
+}

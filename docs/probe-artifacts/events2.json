@@ -1,0 +1,1311 @@
+{
+ "events": [
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "bbe3efed-e6c7-4d91-9434-f285543c472c",
+   "payload": {
+    "previousTitle": "",
+    "source": "first_input",
+    "title": "Reply with exactly: OK"
+   },
+   "seq": 1,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886576812,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_db5b65ef-c0f3-4135-bdf1-e2a25044fe10",
+   "type": "session.titleUpdated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "aa87b081-78e8-423c-837c-4f1102a1b648",
+   "payload": {
+    "turnNumber": 0,
+    "input": "Reply with exactly: OK",
+    "messageId": "msg_mtcdi7uq_3079efec-1473-426f-aa32-14761ebc1cb6",
+    "foregroundExecutionId": "runtime_command_1",
+    "queryId": "query_e1de0268-017e-4b88-bae4-b41a1266c6f9"
+   },
+   "seq": 2,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886576962,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_db5b65ef-c0f3-4135-bdf1-e2a25044fe10",
+   "type": "turn.started"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "90c62bf3-9397-49b1-9af4-b8177e902ab3",
+   "payload": {
+    "messageCount": 6,
+    "model": "zai/glm-5.3-flash",
+    "modelRef": {
+     "providerId": "zai",
+     "modelId": "glm-5.3-flash"
+    },
+    "toolCount": 24,
+    "iteration": 0
+   },
+   "seq": 3,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886579996,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_db5b65ef-c0f3-4135-bdf1-e2a25044fe10",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "59ebfede-2b3c-40c0-a349-4339784fc141",
+   "payload": {
+    "baseURL": "https://api.z.ai/api/anthropic",
+    "maxAttempts": 11,
+    "model": {
+     "providerId": "zai",
+     "modelId": "glm-5.3-flash",
+     "role": "main",
+     "source": "config"
+    },
+    "modelRequestSessionType": "main",
+    "requestId": "658a12fd-c35e-4f80-b2f8-9bf0a3567e41",
+    "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+    "spanId": "5cd50a4a-b473-4f",
+    "parentSpanId": "8a8b3c81-f5bd-49",
+    "querySource": "main_turn",
+    "queryId": "query_e1de0268-017e-4b88-bae4-b41a1266c6f9",
+    "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+    "providerKind": "anthropic",
+    "transport": "sse",
+    "turnId": "turn_db5b65ef-c0f3-4135-bdf1-e2a25044fe10",
+    "modelCall": {
+     "operation": "agent_step",
+     "actorKind": "main",
+     "operationId": "5cd50a4a-b473-4f",
+     "logicalCallId": "4dbc4682-bf4d-4203-af7e-d2c43faf1046",
+     "stepIndex": 0,
+     "reasoning": {
+      "capability": "supported",
+      "requestedControl": "provider_default",
+      "requestedState": "provider_default",
+      "effectiveControl": "fixed_budget",
+      "effectiveState": "enabled",
+      "effectiveLevel": "max",
+      "effectiveBudgetTokens": 32000
+     }
+    },
+    "attempt": 1,
+    "requestHeaderCount": 16,
+    "requestHeaders": {
+     "http-referer": "https://zcode.z.ai",
+     "user-agent": "ZCode/3.9.2",
+     "x-zcode-app-version": "3.9.2",
+     "x-title": "Z Code@electron",
+     "x-release-channel": "production",
+     "x-client-language": "zh-CN",
+     "x-client-timezone": "Asia/Shanghai",
+     "x-platform": "win32-x64",
+     "x-os-category": "windows",
+     "x-os-version": "10.0.26200",
+     "x-zcode-agent": "glm",
+     "x-request-id": "658a12fd-c35e-4f80-b2f8-9bf0a3567e41",
+     "x-zcode-session-type": "main",
+     "x-zcode-trace-id": "f544ae18-e804-41f5-93f7-3158370f13b2",
+     "x-query-id": "e1de0268-017e-4b88-bae4-b41a1266c6f9",
+     "x-session-id": "c60c00b6-f5e2-49bd-a412-571ef5e98602"
+    },
+    "timestamp": "2026-08-28T03:09:40.000Z",
+    "type": "model_request_started",
+    "_meta": {
+     "zcode": {
+      "apiRetry": null
+     }
+    }
+   },
+   "seq": 4,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886580000,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_db5b65ef-c0f3-4135-bdf1-e2a25044fe10",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "74202b3f-6207-40a7-a24c-f479c3b91e49",
+   "payload": {
+    "modelRef": {
+     "providerId": "zai",
+     "modelId": "glm-5.3-flash",
+     "role": "lite",
+     "source": "config"
+    },
+    "messageID": "msg_mtcdi7uq_3079efec-1473-426f-aa32-14761ebc1cb6",
+    "previousTitle": "Reply with exactly: OK",
+    "source": "generated",
+    "title": "Requesting exact OK reply"
+   },
+   "seq": 5,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886580543,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_db5b65ef-c0f3-4135-bdf1-e2a25044fe10",
+   "type": "session.titleUpdated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "2a0492c9-1106-42e0-9526-6d66441c5d92",
+   "payload": {
+    "assistantMessageId": "msg_mtcdia6s_67c0509f-b577-4313-b402-5f721eda6faa",
+    "delta": "OK",
+    "done": false,
+    "kind": "text_delta"
+   },
+   "seq": 6,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886581155,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_db5b65ef-c0f3-4135-bdf1-e2a25044fe10",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "6d243d46-b095-4cd7-87a9-ca877471c14d",
+   "payload": {
+    "baseURL": "https://api.z.ai/api/anthropic",
+    "maxAttempts": 11,
+    "model": {
+     "providerId": "zai",
+     "modelId": "glm-5.3-flash",
+     "role": "main",
+     "source": "config"
+    },
+    "modelRequestSessionType": "main",
+    "requestId": "658a12fd-c35e-4f80-b2f8-9bf0a3567e41",
+    "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+    "spanId": "5cd50a4a-b473-4f",
+    "parentSpanId": "8a8b3c81-f5bd-49",
+    "querySource": "main_turn",
+    "queryId": "query_e1de0268-017e-4b88-bae4-b41a1266c6f9",
+    "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+    "providerKind": "anthropic",
+    "transport": "sse",
+    "turnId": "turn_db5b65ef-c0f3-4135-bdf1-e2a25044fe10",
+    "modelCall": {
+     "operation": "agent_step",
+     "actorKind": "main",
+     "operationId": "5cd50a4a-b473-4f",
+     "logicalCallId": "4dbc4682-bf4d-4203-af7e-d2c43faf1046",
+     "stepIndex": 0,
+     "reasoning": {
+      "capability": "supported",
+      "requestedControl": "provider_default",
+      "requestedState": "provider_default",
+      "effectiveControl": "fixed_budget",
+      "effectiveState": "enabled",
+      "effectiveLevel": "max",
+      "effectiveBudgetTokens": 32000
+     }
+    },
+    "attempt": 1,
+    "durationMs": 1165,
+    "requestHeaderCount": 16,
+    "requestHeaders": {
+     "http-referer": "https://zcode.z.ai",
+     "user-agent": "ZCode/3.9.2",
+     "x-zcode-app-version": "3.9.2",
+     "x-title": "Z Code@electron",
+     "x-release-channel": "production",
+     "x-client-language": "zh-CN",
+     "x-client-timezone": "Asia/Shanghai",
+     "x-platform": "win32-x64",
+     "x-os-category": "windows",
+     "x-os-version": "10.0.26200",
+     "x-zcode-agent": "glm",
+     "x-request-id": "658a12fd-c35e-4f80-b2f8-9bf0a3567e41",
+     "x-zcode-session-type": "main",
+     "x-zcode-trace-id": "f544ae18-e804-41f5-93f7-3158370f13b2",
+     "x-query-id": "e1de0268-017e-4b88-bae4-b41a1266c6f9",
+     "x-session-id": "c60c00b6-f5e2-49bd-a412-571ef5e98602"
+    },
+    "responseHeaderCount": 20,
+    "responseHeaders": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-origin": "*",
+     "cache-control": "no-cache",
+     "connection": "keep-alive",
+     "content-type": "text/event-stream; charset=utf-8",
+     "date": "Fri, 28 Aug 2026 03:09:39 GMT",
+     "eagleeye-traceid": "00000000000000001a046582ec686219",
+     "eagleid": "7c596e9717878865793714868e",
+     "ga-traceid": "545ef41dd108e2ecd6591522934a3e86",
+     "server": "ESA",
+     "set-cookie": "[redacted]",
+     "strict-transport-security": "max-age=31536000; includeSubDomains",
+     "timing-allow-origin": "*",
+     "transfer-encoding": "chunked",
+     "vary": "Accept-Encoding, Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+     "via": "ens-cache39.l2hk12[213,0,DP], ens-cache42.l2su121-10[216,0,DP], ens-cache3.cn7807[249,0,DP], ens-cache3.cn7807[251,0]",
+     "x-log-id": "202608281109398764bde450d844fa",
+     "x-process-time": "0.123125",
+     "x-request-id": "2026082803093940c48ef3769237656470",
+     "x-site-cache-status": "DYNAMIC"
+    },
+    "providerRequestId": "2026082803093940c48ef3769237656470",
+    "finishReason": "stop",
+    "usage": {
+     "inputTokens": 13798,
+     "outputTokens": 3,
+     "totalTokens": 13801,
+     "cacheReadTokens": 11520,
+     "cacheWriteTokens": 0
+    },
+    "timeToFirstProviderEventMs": 6,
+    "timeToFirstContentMs": 1153,
+    "timeToFirstTextMs": 1154,
+    "streamStallCount": 0,
+    "streamOutputCommitted": true,
+    "timestamp": "2026-08-28T03:09:41.165Z",
+    "type": "model_request_completed",
+    "_meta": {
+     "zcode": {
+      "apiRetry": null
+     }
+    }
+   },
+   "seq": 7,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886581167,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_db5b65ef-c0f3-4135-bdf1-e2a25044fe10",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "65c34e90-74b8-425b-b885-2286e634a666",
+   "payload": {
+    "content": "OK",
+    "contextWindow": 1000000,
+    "querySource": "main_turn",
+    "stopReason": "stop",
+    "usage": {
+     "inputTokens": 13798,
+     "outputTokens": 3,
+     "totalTokens": 13801,
+     "cacheReadTokens": 11520,
+     "cacheWriteTokens": 0
+    },
+    "cacheHit": {
+     "inputTokens": 13798,
+     "cacheReadTokens": 11520,
+     "cacheWriteTokens": 0,
+     "latestHitRate": 0.8349036092187273,
+     "hitRate": 0.8349036092187273,
+     "hitRateRequestCount": 1,
+     "totalInputTokens": 13798,
+     "totalCacheReadTokens": 11520,
+     "totalCacheWriteTokens": 0
+    },
+    "contextUsageBreakdown": [
+     {
+      "source": "system_prompt",
+      "chars": 6691
+     },
+     {
+      "source": "meta_user_context",
+      "chars": 41
+     },
+     {
+      "source": "skills",
+      "chars": 6267
+     },
+     {
+      "source": "system_tool_schemas",
+      "chars": 82657
+     },
+     {
+      "source": "mcp_tool_schemas",
+      "chars": 5218
+     },
+     {
+      "source": "messages",
+      "chars": 50
+     }
+    ],
+    "toolCallCount": 0
+   },
+   "seq": 8,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886581179,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_db5b65ef-c0f3-4135-bdf1-e2a25044fe10",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "b2b0d963-5043-454c-8a3a-3f9bddd80dff",
+   "payload": {
+    "response": "OK",
+    "tokenCount": 13801,
+    "usage": {
+     "source": "provider",
+     "modelRequestCount": 1,
+     "inputTokens": 13798,
+     "outputTokens": 3,
+     "totalTokens": 13801,
+     "cacheReadTokens": 11520,
+     "cacheWriteTokens": 0,
+     "reasoningTokens": 0,
+     "webFetchRequests": 0,
+     "webSearchRequests": 0
+    },
+    "toolCallCount": 0,
+    "historyRoundCount": 1,
+    "duration": 4521,
+    "resultType": "success",
+    "cacheStats": {
+     "totalMessages": 7,
+     "cachedMessages": 6,
+     "lastCacheHit": true,
+     "cacheReadTokens": 11520
+    }
+   },
+   "seq": 9,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886581193,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_db5b65ef-c0f3-4135-bdf1-e2a25044fe10",
+   "type": "turn.completed"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "a2b26f87-6ff3-41e6-b3a9-7628ca541f54",
+   "payload": {
+    "turnNumber": 1,
+    "input": "Create a file named ok2.txt with content \"ok2\" using your Write tool.",
+    "messageId": "msg_mtcdibm7_d3f08482-0235-47ea-b9c6-cab17bd9adbd",
+    "foregroundExecutionId": "runtime_command_2",
+    "queryId": "query_ad1c521c-6b53-4c89-8254-362d20c10fee"
+   },
+   "seq": 10,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886581839,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "turn.started"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "a959477a-7530-46d1-b4aa-0ed2f0b557a5",
+   "payload": {
+    "messageCount": 8,
+    "model": "zai/glm-5.3-flash",
+    "modelRef": {
+     "providerId": "zai",
+     "modelId": "glm-5.3-flash"
+    },
+    "toolCount": 24,
+    "iteration": 0
+   },
+   "seq": 11,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886581919,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "46c59dcd-5c7a-49fc-bff8-291add4e0cad",
+   "payload": {
+    "baseURL": "https://api.z.ai/api/anthropic",
+    "maxAttempts": 11,
+    "model": {
+     "providerId": "zai",
+     "modelId": "glm-5.3-flash",
+     "role": "main",
+     "source": "config"
+    },
+    "modelRequestSessionType": "main",
+    "requestId": "31101d5e-a1d8-420a-a0ee-a6e88b5386aa",
+    "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+    "spanId": "8f962027-9b07-48",
+    "parentSpanId": "aabbb637-b7e2-44",
+    "querySource": "main_turn",
+    "queryId": "query_ad1c521c-6b53-4c89-8254-362d20c10fee",
+    "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+    "providerKind": "anthropic",
+    "transport": "sse",
+    "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+    "modelCall": {
+     "operation": "agent_step",
+     "actorKind": "main",
+     "operationId": "8f962027-9b07-48",
+     "logicalCallId": "b2374d90-841e-4599-b580-554298f94f95",
+     "stepIndex": 0,
+     "reasoning": {
+      "capability": "supported",
+      "requestedControl": "provider_default",
+      "requestedState": "provider_default",
+      "effectiveControl": "fixed_budget",
+      "effectiveState": "enabled",
+      "effectiveLevel": "max",
+      "effectiveBudgetTokens": 32000
+     }
+    },
+    "attempt": 1,
+    "requestHeaderCount": 16,
+    "requestHeaders": {
+     "http-referer": "https://zcode.z.ai",
+     "user-agent": "ZCode/3.9.2",
+     "x-zcode-app-version": "3.9.2",
+     "x-title": "Z Code@electron",
+     "x-release-channel": "production",
+     "x-client-language": "zh-CN",
+     "x-client-timezone": "Asia/Shanghai",
+     "x-platform": "win32-x64",
+     "x-os-category": "windows",
+     "x-os-version": "10.0.26200",
+     "x-zcode-agent": "glm",
+     "x-request-id": "31101d5e-a1d8-420a-a0ee-a6e88b5386aa",
+     "x-zcode-session-type": "main",
+     "x-zcode-trace-id": "f544ae18-e804-41f5-93f7-3158370f13b2",
+     "x-query-id": "ad1c521c-6b53-4c89-8254-362d20c10fee",
+     "x-session-id": "c60c00b6-f5e2-49bd-a412-571ef5e98602"
+    },
+    "timestamp": "2026-08-28T03:09:41.922Z",
+    "type": "model_request_started",
+    "_meta": {
+     "zcode": {
+      "apiRetry": null
+     }
+    }
+   },
+   "seq": 12,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886581922,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "edc9e1a6-8c5e-41e8-b7b4-53456110dd08",
+   "payload": {
+    "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "delta": "The",
+    "done": false,
+    "kind": "reasoning_delta"
+   },
+   "seq": 13,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886583006,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "58d10da9-c146-42b2-ad2e-f6166a0ad197",
+   "payload": {
+    "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "delta": " user wants me to create a file named ok2.txt with content \"ok2\". Simple task",
+    "done": false,
+    "kind": "reasoning_delta"
+   },
+   "seq": 14,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886583285,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "0a918258-0386-44ba-a9d8-c162f2f1fa3b",
+   "payload": {
+    "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "delta": " - use the Write tool. The working directory is C:\\Users\\81972\\AppData\\Local",
+    "done": false,
+    "kind": "reasoning_delta"
+   },
+   "seq": 15,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886583567,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "59f77fbc-6152-4567-9904-e7651ce8b33a",
+   "payload": {
+    "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "delta": "\\Temp\\zcode-probe-ws. I'll write to that path.",
+    "done": false,
+    "kind": "reasoning_delta"
+   },
+   "seq": 16,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886583806,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "bcd23957-1f73-4a4a-b703-fbb192c1c82f",
+   "payload": {
+    "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "delta": "",
+    "done": false,
+    "kind": "tool_input_start",
+    "toolCallId": "call_dfbf44abcf3e4d628ff11b8e",
+    "toolName": "Write"
+   },
+   "seq": 17,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886583867,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "aae14762-ffd6-4c93-a5e3-bf9ea08c6cad",
+   "payload": {
+    "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "delta": "{\"file_path\":\"C:\\\\Users\\\\81972\\\\AppData\\\\Local\\\\Temp\\\\zcode-probe-ws\\\\ok2.txt\",\"content\":\"ok2\"}",
+    "done": false,
+    "kind": "tool_input_delta",
+    "toolCallId": "call_dfbf44abcf3e4d628ff11b8e"
+   },
+   "seq": 18,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584196,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "9dd7eff1-e487-4d52-8832-5fe568ff589e",
+   "payload": {
+    "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "delta": "",
+    "done": false,
+    "kind": "tool_input_end",
+    "toolCallId": "call_dfbf44abcf3e4d628ff11b8e"
+   },
+   "seq": 19,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584197,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "b6086557-dc5a-482e-bf78-2c65e22598e7",
+   "payload": {
+    "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "delta": "",
+    "done": false,
+    "input": {
+     "file_path": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt",
+     "content": "ok2"
+    },
+    "kind": "tool_call",
+    "toolCallId": "call_dfbf44abcf3e4d628ff11b8e",
+    "toolName": "Write"
+   },
+   "seq": 20,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584197,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "d72b7e9e-49ef-40ac-8b6e-dff718756afe",
+   "payload": {
+    "baseURL": "https://api.z.ai/api/anthropic",
+    "maxAttempts": 11,
+    "model": {
+     "providerId": "zai",
+     "modelId": "glm-5.3-flash",
+     "role": "main",
+     "source": "config"
+    },
+    "modelRequestSessionType": "main",
+    "requestId": "31101d5e-a1d8-420a-a0ee-a6e88b5386aa",
+    "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+    "spanId": "8f962027-9b07-48",
+    "parentSpanId": "aabbb637-b7e2-44",
+    "querySource": "main_turn",
+    "queryId": "query_ad1c521c-6b53-4c89-8254-362d20c10fee",
+    "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+    "providerKind": "anthropic",
+    "transport": "sse",
+    "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+    "modelCall": {
+     "operation": "agent_step",
+     "actorKind": "main",
+     "operationId": "8f962027-9b07-48",
+     "logicalCallId": "b2374d90-841e-4599-b580-554298f94f95",
+     "stepIndex": 0,
+     "reasoning": {
+      "capability": "supported",
+      "requestedControl": "provider_default",
+      "requestedState": "provider_default",
+      "effectiveControl": "fixed_budget",
+      "effectiveState": "enabled",
+      "effectiveLevel": "max",
+      "effectiveBudgetTokens": 32000
+     }
+    },
+    "attempt": 1,
+    "durationMs": 2283,
+    "requestHeaderCount": 16,
+    "requestHeaders": {
+     "http-referer": "https://zcode.z.ai",
+     "user-agent": "ZCode/3.9.2",
+     "x-zcode-app-version": "3.9.2",
+     "x-title": "Z Code@electron",
+     "x-release-channel": "production",
+     "x-client-language": "zh-CN",
+     "x-client-timezone": "Asia/Shanghai",
+     "x-platform": "win32-x64",
+     "x-os-category": "windows",
+     "x-os-version": "10.0.26200",
+     "x-zcode-agent": "glm",
+     "x-request-id": "31101d5e-a1d8-420a-a0ee-a6e88b5386aa",
+     "x-zcode-session-type": "main",
+     "x-zcode-trace-id": "f544ae18-e804-41f5-93f7-3158370f13b2",
+     "x-query-id": "ad1c521c-6b53-4c89-8254-362d20c10fee",
+     "x-session-id": "c60c00b6-f5e2-49bd-a412-571ef5e98602"
+    },
+    "responseHeaderCount": 20,
+    "responseHeaders": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-origin": "*",
+     "cache-control": "no-cache",
+     "connection": "keep-alive",
+     "content-type": "text/event-stream; charset=utf-8",
+     "date": "Fri, 28 Aug 2026 03:09:41 GMT",
+     "eagleeye-traceid": "00000000000000001a046583608b4141",
+     "eagleid": "7c596e9c17878865812261107e",
+     "ga-traceid": "6c629d4638b5810435af55b566c19bb2",
+     "server": "ESA",
+     "set-cookie": "[redacted]",
+     "strict-transport-security": "max-age=31536000; includeSubDomains",
+     "timing-allow-origin": "*",
+     "transfer-encoding": "chunked",
+     "vary": "Accept-Encoding, Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+     "via": "ens-cache5.l2hk12[288,0,DP], ens-cache11.l2su121-10[292,0,DP], ens-cache8.cn7807[332,0,DP], ens-cache8.cn7807[334,0]",
+     "x-log-id": "20260828110941c6e0f1a6649e4e8b",
+     "x-process-time": "0.153314",
+     "x-request-id": "20260828030941c75d3337aa41493288fe",
+     "x-site-cache-status": "DYNAMIC"
+    },
+    "providerRequestId": "20260828030941c75d3337aa41493288fe",
+    "finishReason": "tool-calls",
+    "usage": {
+     "inputTokens": 13821,
+     "outputTokens": 98,
+     "totalTokens": 13919,
+     "cacheReadTokens": 13760,
+     "cacheWriteTokens": 0
+    },
+    "timeToFirstProviderEventMs": 2,
+    "timeToFirstContentMs": 1084,
+    "streamStallCount": 0,
+    "streamOutputCommitted": true,
+    "timestamp": "2026-08-28T03:09:44.205Z",
+    "type": "model_request_completed",
+    "_meta": {
+     "zcode": {
+      "apiRetry": null
+     }
+    }
+   },
+   "seq": 21,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584206,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "84c8afec-0ac7-4ba1-a1cf-2a2cac0f8d1b",
+   "payload": {
+    "content": "",
+    "contextWindow": 1000000,
+    "querySource": "main_turn",
+    "stopReason": "tool-calls",
+    "usage": {
+     "inputTokens": 13821,
+     "outputTokens": 98,
+     "totalTokens": 13919,
+     "cacheReadTokens": 13760,
+     "cacheWriteTokens": 0
+    },
+    "cacheHit": {
+     "inputTokens": 13821,
+     "cacheReadTokens": 13760,
+     "cacheWriteTokens": 0,
+     "latestHitRate": 0.9955864264524998,
+     "hitRate": 0.9153119229515913,
+     "hitRateRequestCount": 2,
+     "totalInputTokens": 27619,
+     "totalCacheReadTokens": 25280,
+     "totalCacheWriteTokens": 0
+    },
+    "contextUsageBreakdown": [
+     {
+      "source": "system_prompt",
+      "chars": 6691
+     },
+     {
+      "source": "meta_user_context",
+      "chars": 41
+     },
+     {
+      "source": "skills",
+      "chars": 6267
+     },
+     {
+      "source": "system_tool_schemas",
+      "chars": 82657
+     },
+     {
+      "source": "mcp_tool_schemas",
+      "chars": 5218
+     },
+     {
+      "source": "messages",
+      "chars": 184
+     }
+    ],
+    "toolCallCount": 1
+   },
+   "seq": 22,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584217,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "eb30994a-d363-4b6f-b1ab-92c0dde688ce",
+   "payload": {
+    "toolCallId": "call_dfbf44abcf3e4d628ff11b8e",
+    "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "toolName": "Write",
+    "dependencies": [],
+    "parallelGroupIndex": 0,
+    "canRunParallel": false,
+    "schedule": {
+     "parallelGroups": [
+      [
+       "call_dfbf44abcf3e4d628ff11b8e"
+      ]
+     ],
+     "executionOrder": [
+      "call_dfbf44abcf3e4d628ff11b8e"
+     ]
+    },
+    "kind": "scheduled",
+    "inputByteLength": 95,
+    "inputOmitted": true,
+    "inputRef": "model_stream"
+   },
+   "seq": 23,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584226,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "tool.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "683eb072-d5cf-4b49-b822-a7175a05cc17",
+   "payload": {
+    "toolCallId": "call_dfbf44abcf3e4d628ff11b8e",
+    "toolName": "Write",
+    "startedAt": 1787886584235,
+    "kind": "started"
+   },
+   "seq": 24,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584235,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "tool.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "703fdff6-218b-42fe-b66b-14186f80191b",
+   "payload": {
+    "toolCallId": "call_dfbf44abcf3e4d628ff11b8e",
+    "result": {
+     "success": true,
+     "content": "File created successfully at: C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt (file state is current in your context — no need to Read it back)",
+     "perf": {
+      "totalMs": 20,
+      "detail": {
+       "kind": "filesystem",
+       "filesystem": {
+        "readMs": 5,
+        "writeMs": 9,
+        "fileCount": 1,
+        "totalBytes": 3,
+        "maxFileBytes": 3,
+        "workspaceKind": "local"
+       }
+      }
+     },
+     "truncated": false,
+     "originalBytes": 154,
+     "returnedBytes": 154,
+     "budgetStrategy": "truncate"
+    },
+    "duration": 17,
+    "kind": "result"
+   },
+   "seq": 25,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584253,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "tool.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "cfd3db67-a333-4e78-b1bf-e7a90cb65338",
+   "payload": {
+    "toolCallIds": [
+     "call_dfbf44abcf3e4d628ff11b8e"
+    ],
+    "successCount": 1,
+    "errorCount": 0,
+    "kind": "batch"
+   },
+   "seq": 26,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584257,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "tool.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "ad9e78a4-5715-44d4-b80c-b9c475cb21e7",
+   "payload": {
+    "checkpointId": "checkpoint_f1277821-b88e-45b9-9f58-f928fb08fc77",
+    "messageId": "msg_mtcdibm7_d3f08482-0235-47ea-b9c6-cab17bd9adbd",
+    "targetMessageId": "msg_mtcdibm7_d3f08482-0235-47ea-b9c6-cab17bd9adbd",
+    "toolMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "scope": "workspace",
+    "snapshotRef": "zcode-artifact://sess_c60c00b6-f5e2-49bd-a412-571ef5e98602/tool-result-8d373631-a2e8-4c89-bd86-7071b18adf5d",
+    "diffRef": "zcode-artifact://sess_c60c00b6-f5e2-49bd-a412-571ef5e98602/tool-result-8d373631-a2e8-4c89-bd86-7071b18adf5d",
+    "fileCount": 1
+   },
+   "seq": 27,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584265,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "checkpoint.created"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "fa95209e-2ec5-4e79-bb6e-d82d6d93ede0",
+   "payload": {
+    "anchorId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1:call_dfbf44abcf3e4d628ff11b8e:tool-result",
+    "attemptId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1:end-of-stream",
+    "kind": "tool_result",
+    "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "toolCallId": "call_dfbf44abcf3e4d628ff11b8e",
+    "toolName": "Write",
+    "resultPartId": "part_mtcdidgd_8de354e3-35b5-451d-8c4e-67a48f48c055",
+    "committedToolCallIds": [
+     "call_dfbf44abcf3e4d628ff11b8e"
+    ],
+    "committedAt": "2026-08-28T03:09:44.253Z"
+   },
+   "seq": 28,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584268,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "streamRecovery.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "42691f04-554a-4f7b-b9f4-3f201a4b663a",
+   "payload": {
+    "messageCount": 10,
+    "model": "zai/glm-5.3-flash",
+    "modelRef": {
+     "providerId": "zai",
+     "modelId": "glm-5.3-flash"
+    },
+    "toolCount": 24,
+    "iteration": 1
+   },
+   "seq": 29,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584281,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "9acf3323-79c4-4a94-851d-fed4562356bf",
+   "payload": {
+    "baseURL": "https://api.z.ai/api/anthropic",
+    "maxAttempts": 11,
+    "model": {
+     "providerId": "zai",
+     "modelId": "glm-5.3-flash",
+     "role": "main",
+     "source": "config"
+    },
+    "modelRequestSessionType": "main",
+    "requestId": "420d566d-3e64-4dd0-b550-4c5c2d0a73ca",
+    "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+    "spanId": "1e603d17-a709-4d",
+    "parentSpanId": "aabbb637-b7e2-44",
+    "querySource": "main_turn",
+    "queryId": "query_ad1c521c-6b53-4c89-8254-362d20c10fee",
+    "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+    "providerKind": "anthropic",
+    "transport": "sse",
+    "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+    "modelCall": {
+     "operation": "agent_step",
+     "actorKind": "main",
+     "operationId": "1e603d17-a709-4d",
+     "logicalCallId": "71753186-891d-4253-863e-43498ad0060a",
+     "stepIndex": 1,
+     "reasoning": {
+      "capability": "supported",
+      "requestedControl": "provider_default",
+      "requestedState": "provider_default",
+      "effectiveControl": "fixed_budget",
+      "effectiveState": "enabled",
+      "effectiveLevel": "max",
+      "effectiveBudgetTokens": 32000
+     }
+    },
+    "attempt": 1,
+    "requestHeaderCount": 16,
+    "requestHeaders": {
+     "http-referer": "https://zcode.z.ai",
+     "user-agent": "ZCode/3.9.2",
+     "x-zcode-app-version": "3.9.2",
+     "x-title": "Z Code@electron",
+     "x-release-channel": "production",
+     "x-client-language": "zh-CN",
+     "x-client-timezone": "Asia/Shanghai",
+     "x-platform": "win32-x64",
+     "x-os-category": "windows",
+     "x-os-version": "10.0.26200",
+     "x-zcode-agent": "glm",
+     "x-request-id": "420d566d-3e64-4dd0-b550-4c5c2d0a73ca",
+     "x-zcode-session-type": "main",
+     "x-zcode-trace-id": "f544ae18-e804-41f5-93f7-3158370f13b2",
+     "x-query-id": "ad1c521c-6b53-4c89-8254-362d20c10fee",
+     "x-session-id": "c60c00b6-f5e2-49bd-a412-571ef5e98602"
+    },
+    "timestamp": "2026-08-28T03:09:44.283Z",
+    "type": "model_request_started",
+    "_meta": {
+     "zcode": {
+      "apiRetry": null
+     }
+    }
+   },
+   "seq": 30,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886584283,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "887a07ae-81f5-46b2-a025-0d54c912ca6e",
+   "payload": {
+    "assistantMessageId": "msg_mtcdidhv_3d8a7ce1-b7e0-455b-9b9b-fd810a78d980",
+    "delta": "Created",
+    "done": false,
+    "kind": "text_delta"
+   },
+   "seq": 31,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886585352,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "3636336c-7951-4750-afde-2d827d0002ba",
+   "payload": {
+    "assistantMessageId": "msg_mtcdidhv_3d8a7ce1-b7e0-455b-9b9b-fd810a78d980",
+    "delta": " `ok2.txt` in",
+    "done": false,
+    "kind": "text_delta"
+   },
+   "seq": 32,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886585728,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "fb142e3e-a7ee-499a-a862-99a355faf420",
+   "payload": {
+    "assistantMessageId": "msg_mtcdidhv_3d8a7ce1-b7e0-455b-9b9b-fd810a78d980",
+    "delta": " the working directory with the content `ok2`.",
+    "done": false,
+    "kind": "text_delta"
+   },
+   "seq": 33,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886585732,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "model.streaming"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "5e424903-04b2-4a02-a107-1f66afb5ba2e",
+   "payload": {
+    "baseURL": "https://api.z.ai/api/anthropic",
+    "maxAttempts": 11,
+    "model": {
+     "providerId": "zai",
+     "modelId": "glm-5.3-flash",
+     "role": "main",
+     "source": "config"
+    },
+    "modelRequestSessionType": "main",
+    "requestId": "420d566d-3e64-4dd0-b550-4c5c2d0a73ca",
+    "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+    "spanId": "1e603d17-a709-4d",
+    "parentSpanId": "aabbb637-b7e2-44",
+    "querySource": "main_turn",
+    "queryId": "query_ad1c521c-6b53-4c89-8254-362d20c10fee",
+    "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+    "providerKind": "anthropic",
+    "transport": "sse",
+    "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+    "modelCall": {
+     "operation": "agent_step",
+     "actorKind": "main",
+     "operationId": "1e603d17-a709-4d",
+     "logicalCallId": "71753186-891d-4253-863e-43498ad0060a",
+     "stepIndex": 1,
+     "reasoning": {
+      "capability": "supported",
+      "requestedControl": "provider_default",
+      "requestedState": "provider_default",
+      "effectiveControl": "fixed_budget",
+      "effectiveState": "enabled",
+      "effectiveLevel": "max",
+      "effectiveBudgetTokens": 32000
+     }
+    },
+    "attempt": 1,
+    "durationMs": 1452,
+    "requestHeaderCount": 16,
+    "requestHeaders": {
+     "http-referer": "https://zcode.z.ai",
+     "user-agent": "ZCode/3.9.2",
+     "x-zcode-app-version": "3.9.2",
+     "x-title": "Z Code@electron",
+     "x-release-channel": "production",
+     "x-client-language": "zh-CN",
+     "x-client-timezone": "Asia/Shanghai",
+     "x-platform": "win32-x64",
+     "x-os-category": "windows",
+     "x-os-version": "10.0.26200",
+     "x-zcode-agent": "glm",
+     "x-request-id": "420d566d-3e64-4dd0-b550-4c5c2d0a73ca",
+     "x-zcode-session-type": "main",
+     "x-zcode-trace-id": "f544ae18-e804-41f5-93f7-3158370f13b2",
+     "x-query-id": "ad1c521c-6b53-4c89-8254-362d20c10fee",
+     "x-session-id": "c60c00b6-f5e2-49bd-a412-571ef5e98602"
+    },
+    "responseHeaderCount": 20,
+    "responseHeaders": {
+     "access-control-allow-headers": "*",
+     "access-control-allow-origin": "*",
+     "cache-control": "no-cache",
+     "connection": "keep-alive",
+     "content-type": "text/event-stream; charset=utf-8",
+     "date": "Fri, 28 Aug 2026 03:09:43 GMT",
+     "eagleeye-traceid": "00000000000000001a046583f435ed31",
+     "eagleid": "7c596e9c17878865835871475e",
+     "ga-traceid": "f9c7cb20cc16897b709d08588bfa57cb",
+     "server": "ESA",
+     "set-cookie": "[redacted]",
+     "strict-transport-security": "max-age=31536000; includeSubDomains",
+     "timing-allow-origin": "*",
+     "transfer-encoding": "chunked",
+     "vary": "Accept-Encoding, Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+     "via": "ens-cache14.l2hk12[198,0,DP], ens-cache56.l2su121-10[202,0,DP], ens-cache8.cn7807[248,0,DP], ens-cache8.cn7807[251,0]",
+     "x-log-id": "2026082811094332dadcdfc0f94430",
+     "x-process-time": "0.116845",
+     "x-request-id": "20260828030943e4dd3a85e4232b1f02e9",
+     "x-site-cache-status": "DYNAMIC"
+    },
+    "providerRequestId": "20260828030943e4dd3a85e4232b1f02e9",
+    "finishReason": "stop",
+    "usage": {
+     "inputTokens": 13967,
+     "outputTokens": 19,
+     "totalTokens": 13986,
+     "cacheReadTokens": 13760,
+     "cacheWriteTokens": 0
+    },
+    "timeToFirstProviderEventMs": 2,
+    "timeToFirstContentMs": 1068,
+    "timeToFirstTextMs": 1069,
+    "streamStallCount": 0,
+    "streamOutputCommitted": true,
+    "timestamp": "2026-08-28T03:09:45.735Z",
+    "type": "model_request_completed",
+    "_meta": {
+     "zcode": {
+      "apiRetry": null
+     }
+    }
+   },
+   "seq": 34,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886585736,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "9ecaf390-bbea-48be-841f-7237c76dcfec",
+   "payload": {
+    "content": "Created `ok2.txt` in the working directory with the content `ok2`.",
+    "contextWindow": 1000000,
+    "querySource": "main_turn",
+    "stopReason": "stop",
+    "usage": {
+     "inputTokens": 13967,
+     "outputTokens": 19,
+     "totalTokens": 13986,
+     "cacheReadTokens": 13760,
+     "cacheWriteTokens": 0
+    },
+    "cacheHit": {
+     "inputTokens": 13967,
+     "cacheReadTokens": 13760,
+     "cacheWriteTokens": 0,
+     "latestHitRate": 0.9851793513281306,
+     "hitRate": 0.9387774731880921,
+     "hitRateRequestCount": 3,
+     "totalInputTokens": 41586,
+     "totalCacheReadTokens": 39040,
+     "totalCacheWriteTokens": 0
+    },
+    "fileChanges": {
+     "additions": 1,
+     "deletions": 0,
+     "files": 1,
+     "items": [
+      {
+       "additions": 1,
+       "deletions": 0,
+       "path": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt",
+       "toolNames": [
+        "Write"
+       ],
+       "writeCount": 1
+      }
+     ]
+    },
+    "contextUsageBreakdown": [
+     {
+      "source": "system_prompt",
+      "chars": 6691
+     },
+     {
+      "source": "meta_user_context",
+      "chars": 41
+     },
+     {
+      "source": "skills",
+      "chars": 6267
+     },
+     {
+      "source": "system_tool_schemas",
+      "chars": 82657
+     },
+     {
+      "source": "mcp_tool_schemas",
+      "chars": 5218
+     },
+     {
+      "source": "messages",
+      "chars": 953
+     }
+    ],
+    "toolCallCount": 0
+   },
+   "seq": 35,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886585745,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "session.updated"
+  },
+  {
+   "deliveryKind": "desktop-continuous",
+   "eventId": "0c2fa674-902c-4e8c-826c-810e15926747",
+   "payload": {
+    "response": "Created `ok2.txt` in the working directory with the content `ok2`.",
+    "tokenCount": 27905,
+    "usage": {
+     "source": "provider",
+     "modelRequestCount": 2,
+     "inputTokens": 27788,
+     "outputTokens": 117,
+     "totalTokens": 27905,
+     "cacheReadTokens": 27520,
+     "cacheWriteTokens": 0,
+     "reasoningTokens": 0,
+     "webFetchRequests": 0,
+     "webSearchRequests": 0
+    },
+    "toolCallCount": 1,
+    "historyRoundCount": 2,
+    "duration": 3918,
+    "resultType": "success",
+    "cacheStats": {
+     "totalMessages": 11,
+     "cachedMessages": 10,
+     "lastCacheHit": true,
+     "cacheReadTokens": 13760
+    }
+   },
+   "seq": 36,
+   "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+   "timestamp": 1787886585756,
+   "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+   "turnId": "turn_5c85f080-ef9e-42fd-b4ac-bcc6456fedb0",
+   "type": "turn.completed"
+  }
+ ]
+}

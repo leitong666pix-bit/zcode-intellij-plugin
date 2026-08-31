@@ -1,0 +1,3 @@
+{"id":"server-1","method":"session/requestRuntimePreferences","params":{"sessionId":"sess_c60c00b6-f5e2-49bd-a412-571ef5e98602","scope":"runtime-materialization"}}
+{"id":"server-2","method":"interaction/requestOfficialMcpAuthHeaders","params":{"mcpKey":"image_search","pluginId":"document-skills@zcode-plugins-official","requestId":"official-mcp-auth:1","targetOrigin":"https://zcode.z.ai","workspace":{"workspaceKey":"C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws","workspacePath":"C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"}}}
+{"id":"server-3","method":"session/requestRuntimePreferences","params":{"sessionId":"sess_c60c00b6-f5e2-49bd-a412-571ef5e98602","scope":"user-execution"}}

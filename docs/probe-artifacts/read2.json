@@ -1,0 +1,530 @@
+{
+ "messages": [
+  {
+   "info": {
+    "agent": "zcode-agent",
+    "messageId": "msg_mtcdi7uq_3079efec-1473-426f-aa32-14761ebc1cb6",
+    "model": {
+     "modelId": "glm-5.3-flash",
+     "providerId": "zai"
+    },
+    "role": "user",
+    "semantics": {
+     "origin": "real_user",
+     "kind": "user_prompt",
+     "uiVisibility": "visible",
+     "providerVisibility": "visible",
+     "transcriptVisibility": "visible"
+    },
+    "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+    "time": {
+     "created": 1787886576965
+    },
+    "tools": {
+     "Agent": true,
+     "AskUserQuestion": true,
+     "Bash": true,
+     "CronCreate": true,
+     "CronDelete": true,
+     "CronList": true,
+     "CronUpdate": true,
+     "Edit": true,
+     "EnterPlanMode": true,
+     "ExitPlanMode": true,
+     "Read": true,
+     "Skill": true,
+     "TaskOutput": true,
+     "TaskStop": true,
+     "TodoRead": true,
+     "TodoWrite": true,
+     "WebFetch": true,
+     "WebSearch": true,
+     "Write": true,
+     "SendMessage": true,
+     "ReadSessionContext": true
+    }
+   },
+   "parts": [
+    {
+     "messageId": "msg_mtcdi7uq_3079efec-1473-426f-aa32-14761ebc1cb6",
+     "partId": "part_mtcdi7ut_62f79b4f-3f0d-4ab3-b438-f556f33fd4e5",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "text": "Reply with exactly: OK",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "info": {
+    "agent": "zcode-agent",
+    "cost": 0,
+    "finish": "stop",
+    "messageId": "msg_mtcdia6s_67c0509f-b577-4313-b402-5f721eda6faa",
+    "model": {
+     "modelId": "glm-5.3-flash",
+     "providerId": "zai"
+    },
+    "parentMessageId": "msg_mtcdi7uq_3079efec-1473-426f-aa32-14761ebc1cb6",
+    "path": {
+     "cwd": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws",
+     "root": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"
+    },
+    "role": "assistant",
+    "semantics": {
+     "origin": "agent_runtime",
+     "kind": "assistant_response",
+     "uiVisibility": "visible",
+     "providerVisibility": "visible",
+     "transcriptVisibility": "visible"
+    },
+    "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+    "time": {
+     "created": 1787886579988,
+     "completed": 1787886581187
+    },
+    "tokens": {
+     "total": 13801,
+     "input": 13798,
+     "output": 3,
+     "reasoning": 0,
+     "cache": {
+      "read": 11520,
+      "write": 0
+     }
+    }
+   },
+   "parts": [
+    {
+     "messageId": "msg_mtcdia6s_67c0509f-b577-4313-b402-5f721eda6faa",
+     "partId": "part_mtcdia6x_f0da1876-9518-482b-bc85-1ee759aa1513",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "type": "step-start"
+    },
+    {
+     "messageId": "msg_mtcdia6s_67c0509f-b577-4313-b402-5f721eda6faa",
+     "partId": "part_mtcdib3o_a3f12b7e-c658-455f-87f9-c6544ec09fc3",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "text": "OK",
+     "type": "text"
+    },
+    {
+     "messageId": "msg_mtcdia6s_67c0509f-b577-4313-b402-5f721eda6faa",
+     "partId": "part_mtcdib3z_063bf3a2-100c-4c8d-889e-96c97975e569",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "cost": 0,
+     "reason": "stop",
+     "tokens": {
+      "total": 13801,
+      "input": 13798,
+      "output": 3,
+      "reasoning": 0,
+      "cache": {
+       "read": 11520,
+       "write": 0
+      }
+     },
+     "type": "step-finish"
+    }
+   ]
+  },
+  {
+   "info": {
+    "agent": "zcode-agent",
+    "messageId": "msg_mtcdibm7_d3f08482-0235-47ea-b9c6-cab17bd9adbd",
+    "model": {
+     "modelId": "glm-5.3-flash",
+     "providerId": "zai"
+    },
+    "role": "user",
+    "semantics": {
+     "origin": "real_user",
+     "kind": "user_prompt",
+     "uiVisibility": "visible",
+     "providerVisibility": "visible",
+     "transcriptVisibility": "visible"
+    },
+    "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+    "time": {
+     "created": 1787886581840
+    },
+    "tools": {
+     "Agent": true,
+     "AskUserQuestion": true,
+     "Bash": true,
+     "CronCreate": true,
+     "CronDelete": true,
+     "CronList": true,
+     "CronUpdate": true,
+     "Edit": true,
+     "EnterPlanMode": true,
+     "ExitPlanMode": true,
+     "Read": true,
+     "Skill": true,
+     "TaskOutput": true,
+     "TaskStop": true,
+     "TodoRead": true,
+     "TodoWrite": true,
+     "WebFetch": true,
+     "WebSearch": true,
+     "Write": true,
+     "SendMessage": true,
+     "ReadSessionContext": true,
+     "mcp__node_repl__js": true,
+     "mcp__node_repl__js_add_node_module_dir": true,
+     "mcp__node_repl__js_reset": true
+    }
+   },
+   "parts": [
+    {
+     "messageId": "msg_mtcdibm7_d3f08482-0235-47ea-b9c6-cab17bd9adbd",
+     "partId": "part_mtcdibm8_32c2a53f-0b20-4e12-b24f-a2d23919822d",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "text": "Create a file named ok2.txt with content \"ok2\" using your Write tool.",
+     "type": "text"
+    }
+   ]
+  },
+  {
+   "info": {
+    "agent": "zcode-agent",
+    "cost": 0,
+    "finish": "tool-calls",
+    "messageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+    "model": {
+     "modelId": "glm-5.3-flash",
+     "providerId": "zai"
+    },
+    "parentMessageId": "msg_mtcdibm7_d3f08482-0235-47ea-b9c6-cab17bd9adbd",
+    "path": {
+     "cwd": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws",
+     "root": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"
+    },
+    "role": "assistant",
+    "semantics": {
+     "origin": "agent_runtime",
+     "kind": "assistant_response",
+     "uiVisibility": "visible",
+     "providerVisibility": "visible",
+     "transcriptVisibility": "visible"
+    },
+    "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+    "time": {
+     "created": 1787886581912,
+     "completed": 1787886584272
+    },
+    "tokens": {
+     "total": 13919,
+     "input": 13821,
+     "output": 98,
+     "reasoning": 0,
+     "cache": {
+      "read": 13760,
+      "write": 0
+     }
+    }
+   },
+   "parts": [
+    {
+     "messageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+     "partId": "part_mtcdiboc_ef2439f5-d780-48d1-90d3-614c59282af0",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "type": "step-start"
+    },
+    {
+     "messageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+     "partId": "part_mtcdidg2_063ca0bc-bb86-459a-bf7e-a45edb4ee938",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "metadata": {
+      "anthropic": {
+       "signature": "d3eb25ebc28e45209916e9e9"
+      }
+     },
+     "text": "The user wants me to create a file named ok2.txt with content \"ok2\". Simple task - use the Write tool. The working directory is C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws. I'll write to that path.",
+     "type": "reasoning"
+    },
+    {
+     "messageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+     "partId": "part_mtcdidgd_8de354e3-35b5-451d-8c4e-67a48f48c055",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "callId": "call_dfbf44abcf3e4d628ff11b8e",
+     "state": {
+      "completedAt": 1787886584253,
+      "input": {
+       "file_path": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt",
+       "content": "ok2"
+      },
+      "metadata": {
+       "schemaVersion": 1,
+       "serialization": {
+        "truncated": false,
+        "originalBytes": 154,
+        "returnedBytes": 154,
+        "budgetStrategy": "truncate"
+       }
+      },
+      "output": "File created successfully at: C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt (file state is current in your context — no need to Read it back)",
+      "startedAt": 1787886584235,
+      "status": "completed",
+      "title": "Write"
+     },
+     "tool": "Write",
+     "type": "tool"
+    },
+    {
+     "messageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
+     "partId": "part_mtcdidhp_26c40d9d-d4f9-45d9-b85a-dcb4b330213e",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "cost": 0,
+     "reason": "tool-calls",
+     "tokens": {
+      "total": 13919,
+      "input": 13821,
+      "output": 98,
+      "reasoning": 0,
+      "cache": {
+       "read": 13760,
+       "write": 0
+      }
+     },
+     "type": "step-finish"
+    }
+   ]
+  },
+  {
+   "info": {
+    "agent": "zcode-agent",
+    "cost": 0,
+    "finish": "stop",
+    "messageId": "msg_mtcdidhv_3d8a7ce1-b7e0-455b-9b9b-fd810a78d980",
+    "model": {
+     "modelId": "glm-5.3-flash",
+     "providerId": "zai"
+    },
+    "parentMessageId": "msg_mtcdibm7_d3f08482-0235-47ea-b9c6-cab17bd9adbd",
+    "path": {
+     "cwd": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws",
+     "root": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"
+    },
+    "role": "assistant",
+    "semantics": {
+     "origin": "agent_runtime",
+     "kind": "assistant_response",
+     "uiVisibility": "visible",
+     "providerVisibility": "visible",
+     "transcriptVisibility": "visible"
+    },
+    "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+    "time": {
+     "created": 1787886584275,
+     "completed": 1787886585751
+    },
+    "tokens": {
+     "total": 13986,
+     "input": 13967,
+     "output": 19,
+     "reasoning": 0,
+     "cache": {
+      "read": 13760,
+      "write": 0
+     }
+    }
+   },
+   "parts": [
+    {
+     "messageId": "msg_mtcdidhv_3d8a7ce1-b7e0-455b-9b9b-fd810a78d980",
+     "partId": "part_mtcdidhy_c780f5e5-d154-4db5-8640-18eda501501f",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "type": "step-start"
+    },
+    {
+     "messageId": "msg_mtcdidhv_3d8a7ce1-b7e0-455b-9b9b-fd810a78d980",
+     "partId": "part_mtcdiemk_4b995e84-5f1a-48d2-95b4-3d5181c0b4bd",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "text": "Created `ok2.txt` in the working directory with the content `ok2`.",
+     "type": "text"
+    },
+    {
+     "messageId": "msg_mtcdidhv_3d8a7ce1-b7e0-455b-9b9b-fd810a78d980",
+     "partId": "part_mtcdiems_e5eed0f7-31ad-433b-ba18-01a6184627f7",
+     "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+     "cost": 0,
+     "reason": "stop",
+     "tokens": {
+      "total": 13986,
+      "input": 13967,
+      "output": 19,
+      "reasoning": 0,
+      "cache": {
+       "read": 13760,
+       "write": 0
+      }
+     },
+     "type": "step-finish"
+    }
+   ]
+  }
+ ],
+ "projection": {
+  "activeToolCalls": [],
+  "backgroundJobs": [],
+  "contextUsed": 13986,
+  "contextWindow": 1000000,
+  "mode": "build",
+  "pendingPermissions": [],
+  "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+  "status": "idle",
+  "target": null,
+  "totalTokenCount": 41706,
+  "turnCount": 2
+ },
+ "protocol": {
+  "name": "ZCode Protocol",
+  "version": 1
+ },
+ "runtime": {
+  "deliveryKind": "desktop-continuous",
+  "eventSeq": 36,
+  "pendingRequestIds": [],
+  "contextUsage": {
+   "cache": {
+    "inputTokens": 13967,
+    "cacheReadTokens": 13760,
+    "cacheWriteTokens": 0,
+    "latestHitRate": 0.9851793513281306,
+    "hitRate": 0.9387774731880921,
+    "hitRateRequestCount": 3,
+    "totalInputTokens": 41586,
+    "totalCacheReadTokens": 39040,
+    "totalCacheWriteTokens": 0
+   },
+   "cost": null,
+   "size": 1000000,
+   "used": 13986,
+   "breakdown": [
+    {
+     "source": "system_prompt",
+     "chars": 6691
+    },
+    {
+     "source": "meta_user_context",
+     "chars": 41
+    },
+    {
+     "source": "skills",
+     "chars": 6267
+    },
+    {
+     "source": "system_tool_schemas",
+     "chars": 82657
+    },
+    {
+     "source": "mcp_tool_schemas",
+     "chars": 5218
+    },
+    {
+     "source": "messages",
+     "chars": 953
+    }
+   ]
+  },
+  "goalVerifications": [],
+  "goalVerificationTimeline": [],
+  "stateRevision": 4
+ },
+ "session": {
+  "createdAt": 1787886576803,
+  "mode": "build",
+  "model": {
+   "modelId": "glm-5.3-flash",
+   "providerId": "zai"
+  },
+  "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+  "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+  "sessionKind": "interactive",
+  "status": "idle",
+  "target": null,
+  "title": "Requesting exact OK reply",
+  "titleSource": "generated",
+  "updatedAt": 1787886585751,
+  "workspace": {
+   "workspacePath": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws",
+   "workspaceKey": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"
+  }
+ },
+ "settings": {
+  "mode": {
+   "current": "edit"
+  },
+  "model": {
+   "available": [
+    {
+     "contextWindow": 1000000,
+     "label": "glm-5.3-flash",
+     "providerLabel": "Z.AI",
+     "ref": {
+      "modelId": "glm-5.3-flash",
+      "providerId": "zai"
+     }
+    }
+   ],
+   "current": {
+    "modelId": "glm-5.3-flash",
+    "providerId": "zai"
+   },
+   "lastUsed": {
+    "modelId": "glm-5.3-flash",
+    "providerId": "zai"
+   }
+  },
+  "permission": {
+   "mode": "edit"
+  },
+  "thoughtLevel": {
+   "available": [
+    {
+     "label": "low",
+     "value": "low"
+    },
+    {
+     "label": "high",
+     "value": "high"
+    },
+    {
+     "label": "max",
+     "value": "max"
+    }
+   ],
+   "current": "max",
+   "defaultLevel": "max",
+   "enabled": true
+  }
+ },
+ "slashCommands": [
+  {
+   "description": "Show or set the current session goal.",
+   "inputHint": "/goal [pause|resume|clear|replace <objective>|<objective>]",
+   "name": "goal",
+   "source": "builtin"
+  },
+  {
+   "description": "Compact the current conversation with optional instructions.",
+   "inputHint": "/compact [instructions]",
+   "name": "compact",
+   "source": "builtin"
+  },
+  {
+   "description": "Create or update workspace AGENTS.md instructions.",
+   "inputHint": "/init [notes]",
+   "name": "init",
+   "source": "builtin"
+  },
+  {
+   "description": "Switch to Plan mode and optionally send a task.",
+   "inputHint": "/plan [task]",
+   "name": "plan",
+   "source": "builtin"
+  }
+ ],
+ "todos": [],
+ "todoGroups": []
+}

@@ -1,0 +1,230 @@
+{
+ "messages": [],
+ "projection": {
+  "activeToolCalls": [],
+  "backgroundJobs": [],
+  "contextUsed": 0,
+  "contextWindow": 1000000,
+  "mode": "build",
+  "pendingPermissions": [],
+  "sessionId": "unknown",
+  "status": "idle",
+  "target": null,
+  "totalTokenCount": 0,
+  "turnCount": 0
+ },
+ "protocol": {
+  "name": "ZCode Protocol",
+  "version": 1
+ },
+ "runtime": {
+  "eventSeq": 0,
+  "pendingRequestIds": [],
+  "goalVerifications": [],
+  "goalVerificationTimeline": [],
+  "stateRevision": 0
+ },
+ "session": {
+  "createdAt": 1787886576159,
+  "mode": "build",
+  "model": {
+   "modelId": "glm-5.3-flash",
+   "providerId": "zai"
+  },
+  "traceId": "f544ae18-e804-41f5-93f7-3158370f13b2",
+  "sessionId": "sess_c60c00b6-f5e2-49bd-a412-571ef5e98602",
+  "sessionKind": "interactive",
+  "status": "idle",
+  "target": null,
+  "title": "",
+  "updatedAt": 1787886576159,
+  "workspace": {
+   "workspacePath": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws",
+   "workspaceKey": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"
+  }
+ },
+ "settings": {
+  "mode": {
+   "current": "edit"
+  },
+  "model": {
+   "available": [
+    {
+     "contextWindow": 1000000,
+     "label": "glm-5.3-flash",
+     "maxOutputTokens": 128000,
+     "providerLabel": "Z.AI Coding Plan",
+     "reasoning": {
+      "enabled": true,
+      "levels": [
+       {
+        "value": "low",
+        "label": "low"
+       },
+       {
+        "value": "high",
+        "label": "high"
+       },
+       {
+        "value": "max",
+        "label": "max"
+       }
+      ],
+      "defaultLevel": "max",
+      "providerOptionsByLevel": {
+       "low": {
+        "anthropic": {
+         "effort": "low",
+         "thinking": {
+          "budgetTokens": 8000,
+          "type": "enabled"
+         }
+        }
+       },
+       "high": {
+        "anthropic": {
+         "effort": "high",
+         "thinking": {
+          "budgetTokens": 16000,
+          "type": "enabled"
+         }
+        }
+       },
+       "max": {
+        "anthropic": {
+         "effort": "max",
+         "thinking": {
+          "budgetTokens": 32000,
+          "type": "enabled"
+         }
+        }
+       }
+      }
+     },
+     "ref": {
+      "modelId": "glm-5.3-flash",
+      "providerId": "zai"
+     }
+    },
+    {
+     "contextWindow": 1000000,
+     "label": "GLM-5.3",
+     "maxOutputTokens": 128000,
+     "providerLabel": "Z.AI Coding Plan",
+     "reasoning": {
+      "enabled": true,
+      "levels": [
+       {
+        "value": "low",
+        "label": "low"
+       },
+       {
+        "value": "high",
+        "label": "high"
+       },
+       {
+        "value": "max",
+        "label": "max"
+       }
+      ],
+      "defaultLevel": "max",
+      "providerOptionsByLevel": {
+       "low": {
+        "anthropic": {
+         "effort": "low",
+         "thinking": {
+          "budgetTokens": 8000,
+          "type": "enabled"
+         }
+        }
+       },
+       "high": {
+        "anthropic": {
+         "effort": "high",
+         "thinking": {
+          "budgetTokens": 16000,
+          "type": "enabled"
+         }
+        }
+       },
+       "max": {
+        "anthropic": {
+         "effort": "max",
+         "thinking": {
+          "budgetTokens": 32000,
+          "type": "enabled"
+         }
+        }
+       }
+      }
+     },
+     "ref": {
+      "modelId": "glm-5.3",
+      "providerId": "zai"
+     },
+     "supportsImages": false,
+     "supportsPdf": false,
+     "supportsVideo": false
+    }
+   ],
+   "current": {
+    "modelId": "glm-5.3-flash",
+    "providerId": "zai"
+   },
+   "lastUsed": {
+    "modelId": "glm-5.3-flash",
+    "providerId": "zai"
+   }
+  },
+  "permission": {
+   "mode": "edit"
+  },
+  "thoughtLevel": {
+   "available": [
+    {
+     "label": "low",
+     "value": "low"
+    },
+    {
+     "label": "high",
+     "value": "high"
+    },
+    {
+     "label": "max",
+     "value": "max"
+    }
+   ],
+   "current": "max",
+   "defaultLevel": "max",
+   "enabled": true
+  }
+ },
+ "slashCommands": [
+  {
+   "description": "Show or set the current session goal.",
+   "inputHint": "/goal [pause|resume|clear|replace <objective>|<objective>]",
+   "name": "goal",
+   "source": "builtin"
+  },
+  {
+   "description": "Compact the current conversation with optional instructions.",
+   "inputHint": "/compact [instructions]",
+   "name": "compact",
+   "source": "builtin"
+  },
+  {
+   "description": "Create or update workspace AGENTS.md instructions.",
+   "inputHint": "/init [notes]",
+   "name": "init",
+   "source": "builtin"
+  },
+  {
+   "description": "Switch to Plan mode and optionally send a task.",
+   "inputHint": "/plan [task]",
+   "name": "plan",
+   "source": "builtin"
+  }
+ ],
+ "todos": [],
+ "todoGroups": []
+}

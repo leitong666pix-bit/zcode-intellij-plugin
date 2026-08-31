@@ -1,0 +1,43 @@
+<idea-plugin>
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="ZCode"
+                    anchor="right"
+                    factoryClass="zcode.idea.ui.ZcodeToolWindowFactory"
+                    icon="icons/zcode.svg"
+                    canCloseContents="false"/>
+        <applicationConfigurable parentId="tools"
+                                 id="zcode.idea.settings"
+                                 displayName="ZCode"
+                                 instance="zcode.idea.settings.ZcodeConfigurable"/>
+        <notificationGroup id="ZCode" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <group id="Zcode.EditorActions" popup="true" text="ZCode" description="将选区发送给 ZCode">
+            <action id="Zcode.AttachSelection"
+                    class="zcode.idea.actions.AttachSelectionAction"
+                    text="引用选中代码到对话..."
+                    description="把选中的代码作为上下文引用，在 ZCode 对话框中继续提问"/>
+            <action id="Zcode.ExplainSelection"
+                    class="zcode.idea.actions.ExplainSelectionAction"
+                    text="解释选中的代码"
+                    description="让 ZCode 解释当前选中的代码"/>
+            <action id="Zcode.ImproveSelection"
+                    class="zcode.idea.actions.ImproveSelectionAction"
+                    text="优化选中的代码"
+                    description="让 ZCode 优化当前选中的代码"/>
+            <action id="Zcode.WriteTests"
+                    class="zcode.idea.actions.WriteTestsAction"
+                    text="为选中代码写测试"
+                    description="让 ZCode 为选中的代码编写测试"/>
+            <separator/>
+            <action id="Zcode.CustomPrompt"
+                    class="zcode.idea.actions.CustomPromptAction"
+                    text="自定义指令..."
+                    description="输入自定义指令发送给 ZCode"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+        </group>
+    </actions>
+</idea-plugin>
