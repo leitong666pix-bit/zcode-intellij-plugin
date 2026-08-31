@@ -7,7 +7,7 @@
 > 📐 想了解架构与具体实现，请阅读 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**（模块职责、协议事件流、线程模型、设计决策、构建坑）；协议逆向细节见 [docs/PROTOCOL.md](docs/PROTOCOL.md)。
 
 <p align="center">
-  <img src="docs/images/ui-overview.png" width="480" alt="插件界面：右侧 ZCode 工具窗口聊天面板（模型/思考强度切换、流式输出、工具调用卡片）">
+  <img src="docs/images/ui-overview.png" width="800" alt="插件界面：右侧 ZCode 工具窗口聊天面板（模型/思考强度切换、流式输出、工具调用卡片）">
 </p>
 
 ## 架构
