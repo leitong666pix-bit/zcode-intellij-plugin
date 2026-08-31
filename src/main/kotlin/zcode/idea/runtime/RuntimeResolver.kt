@@ -51,22 +51,7 @@ object RuntimeResolver {
             if (File(it).isFile) return it to "设置指定"
             LOG.warn("设置中的 runtime 路径不存在: $it")
         }
-        // 1. zcode-app-cli（npm 全局），标准 npm 前缀布局
-        System.getenv("APPDATA")?.let { appData ->
-            candidate("$appData\\npm\\node_modules\\zcode-app-cli\\vendor\\zcode.cjs")?.let {
-                return it to "zcode-app-cli（npm 全局）"
-            }
-        }
-        // 2. zcode-app-cli（自定义 npm 前缀）：由 PATH 上的 zcode shim 反推
-        where("zcode")?.let { shim ->
-            val dir = File(shim).parentFile // <prefix>\bin 或 <prefix>
-            listOf(dir, dir?.parentFile).filterNotNull().forEach { base ->
-                candidate(File(base, "node_modules/zcode-app-cli/vendor/zcode.cjs").path)?.let {
-                    return it to "zcode-app-cli（PATH 反推）"
-                }
-            }
-        }
-        // 3. ZCode 桌面端常见安装位置
+        // 1. ZCode 桌面端自带的 runtime（首选，避免依赖第三方 npm 包）
         val localAppData = System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home") + "\\AppData\\Local"
         listOf(
             "$localAppData\\Programs\\ZCode\\resources\\glm\\zcode.cjs",
@@ -74,6 +59,21 @@ object RuntimeResolver {
             "D:\\Tools\\ZCode\\resources\\glm\\zcode.cjs",
         ).forEach { path ->
             candidate(path)?.let { return it to "ZCode 桌面端" }
+        }
+        // 2. zcode-app-cli（npm 全局）作为回退：官方桌面端未安装时兜底
+        System.getenv("APPDATA")?.let { appData ->
+            candidate("$appData\\npm\\node_modules\\zcode-app-cli\\vendor\\zcode.cjs")?.let {
+                return it to "zcode-app-cli（npm 回退）"
+            }
+        }
+        // 3. zcode-app-cli（自定义 npm 前缀）：由 PATH 上的 zcode shim 反推
+        where("zcode")?.let { shim ->
+            val dir = File(shim).parentFile // <prefix>\bin 或 <prefix>
+            listOf(dir, dir?.parentFile).filterNotNull().forEach { base ->
+                candidate(File(base, "node_modules/zcode-app-cli/vendor/zcode.cjs").path)?.let {
+                    return it to "zcode-app-cli（PATH 反推）"
+                }
+            }
         }
         return null
     }
