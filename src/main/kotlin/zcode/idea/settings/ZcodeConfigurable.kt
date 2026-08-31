@@ -17,19 +17,24 @@ class ZcodeConfigurable : BoundConfigurable("ZCode") {
 
     override fun createPanel() = panel {
         row("Node.js 路径 (node.exe):") {
+            // 用 (String, Project, FileChooserDescriptor) 这个 242/243/252 共有的重载：
+            // 242 只有此老签名，243+ 新增的 descriptor-first 重载在 242 不存在；
+            // 252 将老签名标为 ERROR 级弃用（字节码仍在），为兼容下限须抑制
+            @Suppress("DEPRECATION_ERROR")
             textFieldWithBrowseButton(
-                FileChooserDescriptorFactory.createSingleFileDescriptor().withTitle("选择 node.exe"),
+                "选择 node.exe",
                 null,
-                null,
+                FileChooserDescriptorFactory.createSingleFileDescriptor(),
             )
                 .bindText({ settings.state.nodePath }, { settings.state.nodePath = it.trim() })
                 .comment("留空则自动探测（PATH / 常见安装位置）。要求 Node >= 22.19。")
         }
         row("zcode runtime 路径 (zcode.cjs):") {
+            @Suppress("DEPRECATION_ERROR") // 同上：242 共有签名，252 中须抑制
             textFieldWithBrowseButton(
-                FileChooserDescriptorFactory.createSingleFileDescriptor().withTitle("选择 zcode.cjs"),
+                "选择 zcode.cjs",
                 null,
-                null,
+                FileChooserDescriptorFactory.createSingleFileDescriptor(),
             )
                 .bindText({ settings.state.runtimePath }, { settings.state.runtimePath = it.trim() })
                 .comment("留空则自动探测：zcode-app-cli（npm 全局）→ ZCode 桌面端安装目录。")

@@ -338,19 +338,22 @@ plugins { id("java"); id("org.jetbrains.kotlin.jvm") version "2.2.10"; id("org.j
 dependencies {
     intellijPlatform {
         local("D:/IntelliJ/IntelliJ IDEA 2025.2.4")   // 本机 IDE，零下载
-        // intellijIdea("2024.3")                       // 换机器/CI：远程拉取（1-2GB），基线=最低支持版本
+        // intellijIdea("2024.2")                       // 换机器/CI：远程拉取（1-2GB），基线=最低支持版本
     }
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation("junit:junit:4.13.2")   // ★ 平台 JUnit5 初始化器内部引用 JUnit4 类，缺了直接 NoClassDefFound
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "243"; untilBuild = null } } }
+intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "242"; untilBuild = null } } }
 ```
 
 - `kotlin.stdlib.default.dependency=false`：平台自带 Kotlin stdlib，插件不重复打包。
 - 国内网络：仓库加阿里云镜像（gradle-plugin/public）；**wrapper 发行版用腾讯镜像**（`services.gradle.org` 会 302 到不可达的 github.com）。
-- **兼容面**：`sinceBuild=243`（2024.3+），CI 以 2024.3 为编译基线，本地用 2025.2.4。唯一的版本敏感点是 `JBHtmlPane`：其无参构造是 252 新增（CI 曾以 2024.3 编译报 `No value passed for parameter 'myStyleConfiguration'`），代码改用 243/252 两端共有的 `JBHtmlPane(JBHtmlPaneStyleConfiguration(), JBHtmlPaneConfiguration())` 两参构造（javap 对比两版本 jar 实证）；其内置 kit 由 `HTMLEditorKitBuilder.build()` 产出，返回类型为 Swing 原生 `HTMLEditorKit`，样式注入路径两版本一致。其余 API 均为 243 期已有稳定面。严格校验可后续跑 `runPluginVerifier`（243–252 各档）。
+- **兼容面**：`sinceBuild=242`（2024.2+），CI 以 2024.2 为编译基线，本地用 2025.2.4 双端编译验证。版本敏感点两处，均按"最小公共 API"改写：
+  1. `JBHtmlPane`：无参构造是 252 新增（CI 曾以 2024.3 编译报 `No value passed for parameter 'myStyleConfiguration'`），改用 `JBHtmlPane(JBHtmlPaneStyleConfiguration(), JBHtmlPaneConfiguration())` 两参构造——242/243 官方源码核对与 243/252 jar javap 四点一致；内置 kit 由 `HTMLEditorKitBuilder.build()` 产出，返回 Swing 原生 `HTMLEditorKit`，样式注入路径各版本一致。241 及更早平台没有 `JBHtmlPane`，不支持。
+  2. UI DSL `Row.textFieldWithBrowseButton`：242 仅有 `(String, Project, FileChooserDescriptor)` 老签名（243 起新增 descriptor-first 重载），252 将老签名标为 ERROR 级弃用但字节码仍在——统一用老签名 + `@Suppress("DEPRECATION_ERROR")` 跨版本共存。
+  严格校验可后续跑 `runPluginVerifier`（242–252 各档）。
 
 ### 9.2 构建用 JDK 的坑（本机实测）
 

@@ -125,8 +125,8 @@ fun readOnlyArea(foreground: Color? = null): WrappingTextArea = WrappingTextArea
  * 分到的高度装不下内容，表现为正文被裁剪甚至完全不可见），这里在 preferredSize 里按父容器宽度重新排版。
  */
 class WrappingHtmlPane : JBHtmlPane(JBHtmlPaneStyleConfiguration(), JBHtmlPaneConfiguration()) {
-    // 不能用 252 新增的无参构造 JBHtmlPane()：243 平台只有两参构造（javap 实证），
-    // 编译基线是 2024.3，必须走两个版本共有的构造路径
+    // 不能用 252 新增的无参构造 JBHtmlPane()：2024.2~2024.4 只有两参构造
+    // （242 官方源码核对 + 243 jar javap 实证），编译基线是 2024.2，必须走共有构造路径
     private var cacheKey = -1L
     private var cachedHeight = 0
 
