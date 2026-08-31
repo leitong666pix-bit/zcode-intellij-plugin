@@ -6,19 +6,18 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Dimension
-import java.awt.FlowLayout
-import java.awt.Rectangle
 import javax.swing.BorderFactory
 import javax.swing.JButton
 import javax.swing.JComboBox
-import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 
 /**
  * ResponsiveToolbarLayout 的几何验证。所有组件显式设 preferredSize（不依赖字体/显示器，
- * headless 下结果确定）。核心不变式：任意宽度下，工具栏里的每个按钮/标签/下拉都完整落在
- * 面板可见范围内——旧版 BorderLayout+EAST 在窄面板下会把左组按钮挤到可视区外（“消失”）。
+ * headless 下结果确定）。两条核心不变式：
+ * 1. 任意宽度下每个组件都完整落在面板可见范围内（旧版 BorderLayout+EAST 窄面板下按钮被挤出可视区）；
+ * 2. 流式换行无死区——每个非末行都塞满（下一个组件确实放不进才换行），不会出现
+ *    "一行大片留白、另一行挤爆"的两行分组布局问题。
  */
 class ResponsiveToolbarLayoutTest {
 
@@ -31,98 +30,109 @@ class ResponsiveToolbarLayoutTest {
     private fun combo(w: Int): JComboBox<String> =
         JComboBox(arrayOf("x")).apply { preferredSize = Dimension(w, 26) }
 
-    /** 与 ChatPanel.buildToolbar 同构的工具栏：component(0)=左组（按钮），component(1)=右组（标签+下拉）。 */
+    /** 与 ChatPanel.buildToolbar 同构：8 个直接子组件，前 3 个为按钮组。 */
     private fun buildToolbar(): JPanel {
-        val left = JPanel(FlowLayout(FlowLayout.LEFT, 2, 4)).apply {
-            add(button("新会话", 62))
-            add(button("恢复", 50))
-            add(button("变更文件 (12)", 102))
-        }
-        val right = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 4)).apply {
-            add(label("● 就绪", 52))
-            add(label("上下文 14k/1.0M", 106))
-            add(combo(128))
-            add(combo(84))
-            add(combo(104))
-        }
-        return JPanel(ResponsiveToolbarLayout(left, right)).apply {
+        val items = listOf(
+            button("新会话", 62),
+            button("恢复", 50),
+            button("变更文件 (12)", 102),
+            label("● 就绪", 52),
+            label("上下文 14k/1.0M", 106),
+            combo(128),
+            combo(84),
+            combo(104),
+        )
+        return JPanel(ResponsiveToolbarLayout(leftCount = 3)).apply {
             border = JBUI.Borders.compound(
                 JBUI.Borders.empty(4, 10, 5, 10),
                 BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
             )
-            add(left)
-            add(right)
+            items.forEach { add(it) }
         }
     }
 
-    /** 按 width 布局（多轮收敛：preferred 高度依赖当前宽度），返回 (面板, 左组, 右组)。
-     *  真实 Swing 的 validate 树会级联布局子容器，这里手动补上 doLayout 级联。 */
-    private fun layoutAt(width: Int): Triple<JPanel, JPanel, JPanel> {
-        val panel = buildToolbar()
+    /** 按 width 布局（多轮收敛：preferred 高度依赖当前宽度），返回面板。 */
+    private fun layoutAt(width: Int): JPanel = buildToolbar().apply {
         repeat(3) {
-            panel.setSize(width, panel.preferredSize.height.coerceAtLeast(1))
-            panel.doLayout()
-            for (i in 0 until panel.componentCount) panel.getComponent(i).doLayout()
+            setSize(width, preferredSize.height.coerceAtLeast(1))
+            doLayout()
         }
-        return Triple(panel, panel.getComponent(0) as JPanel, panel.getComponent(1) as JPanel)
     }
 
-    /** 组内行数：FlowLayout 垂直居中，同一行组件的 (y+高度/2) 相同。 */
-    private fun rows(group: JComponent): Int =
-        (0 until group.componentCount).map { group.getComponent(it) }
-            .map { it.y + it.height / 2 }.distinct().size
+    /** 各组件的行号：按 y 中心聚类（同一行组件被垂直居中，中心相同），自上而下编号。 */
+    private fun rowOf(panel: JPanel): List<Int> {
+        val centers = (0 until panel.componentCount).map { panel.getComponent(it) }
+            .map { it.y + it.height / 2 }
+        val sorted = centers.distinct().sorted()
+        return centers.map { sorted.indexOf(it) }
+    }
 
-    /** 全部子组件（换算到面板坐标系）是否完整落在面板范围内。 */
     private fun allInside(panel: JPanel): Boolean {
         val ins = panel.insets
-        for (gi in 0 until panel.componentCount) {
-            val g = panel.getComponent(gi) as java.awt.Container
-            for (ci in 0 until g.componentCount) {
-                val c = g.getComponent(ci)
-                val r = Rectangle(c.bounds).apply { x += g.x; y += g.y }
-                if (r.x < ins.left || r.y < ins.top ||
-                    r.x + r.width > panel.width - ins.right ||
-                    r.y + r.height > panel.height - ins.bottom
-                ) return false
-            }
+        for (i in 0 until panel.componentCount) {
+            val c = panel.getComponent(i)
+            if (c.x < ins.left || c.y < ins.top ||
+                c.x + c.width > panel.width - ins.right ||
+                c.y + c.height > panel.height - ins.bottom
+            ) return false
+        }
+        return true
+    }
+
+    /** 反死区：每个非末行的行尾 + 间距 + 下一行首组件宽，必须超出可用宽度。 */
+    private fun rowsFullyPacked(panel: JPanel): Boolean {
+        val rows = rowOf(panel)
+        val avail = panel.width - panel.insets.right
+        for (r in 0 until rows.max()) {
+            val rowEnd = (0 until panel.componentCount)
+                .filter { rows[it] == r }
+                .maxOf { panel.getComponent(it).x + panel.getComponent(it).width }
+            val nextFirst = (0 until panel.componentCount).first { rows[it] == r + 1 }
+            val nextW = panel.getComponent(nextFirst).width
+            if (rowEnd + 8 + nextW <= avail) return false
         }
         return true
     }
 
     @Test
-    fun `wide toolbar stays single row`() {
-        val (panel, left, right) = layoutAt(900)
-        assertEquals(1, rows(left))
-        assertEquals(1, rows(right))
-        assertEquals(left.y, right.y, "单行模式下两组应在同一行")
-        assertEquals(panel.insets.left, left.x, "左组应贴左边距")
-        assertEquals(panel.width - panel.insets.right, right.x + right.width, "右组应贴右边距")
+    fun `wide toolbar stays single justified row`() {
+        val panel = layoutAt(900)
+        assertEquals(List(8) { 0 }, rowOf(panel), "900px 应单行")
+        assertEquals(panel.insets.left, panel.getComponent(0).x, "按钮组应贴左边距")
+        val last = panel.getComponent(7)
+        assertEquals(panel.width - panel.insets.right, last.x + last.width, "下拉组应贴右边距")
         assertTrue(allInside(panel))
     }
 
     @Test
-    fun `narrow toolbar wraps into two rows without hiding buttons`() {
-        val (panel, left, right) = layoutAt(500)
-        assertTrue(right.y > left.y, "窄面板应折成两行（右组在下一行）")
-        assertEquals(1, rows(left))
-        assertTrue(allInside(panel), "所有按钮/下拉必须可见（旧布局此宽度下左组被压为 0 宽）")
+    fun `medium toolbar flows labels into button row`() {
+        val panel = layoutAt(500)
+        val rows = rowOf(panel)
+        // 核心诉求：折行时不再"按钮一行/下拉一行"，而是整条流换行铺满——
+        // 状态与上下文标签跟按钮同处第一行，模型下拉从第二行开始
+        assertEquals(rows[0], rows[4], "上下文标签应与按钮同在第一行")
+        assertEquals(rows[5], rows[0] + 1, "模型下拉应在下一行")
+        assertTrue(rowsFullyPacked(panel), "每个非末行都应塞满（无大片留白）")
+        assertTrue(allInside(panel))
     }
 
     @Test
     fun `very narrow toolbar keeps wrapping and never clips`() {
-        val (panel, _, right) = layoutAt(240)
-        assertTrue(rows(right) >= 2, "240px 放不下右组单行（约 500px），应折为多行")
+        val panel = layoutAt(240)
+        assertTrue(rowOf(panel).max() >= 2, "240px 应折 3 行以上")
+        assertTrue(rowsFullyPacked(panel))
         assertTrue(allInside(panel), "极窄下面板内也不允许组件被裁掉")
-        assertTrue(panel.height > 60, "折行后面板高度应明显大于单行，实际 ${panel.height}")
+        assertTrue(panel.height > 100, "多行折行后面板高度应相应撑开，实际 ${panel.height}")
     }
 
     @Test
-    fun `stacked mode grows height as width shrinks`() {
+    fun `height grows monotonically as width shrinks`() {
         fun prefHeightAt(width: Int): Int = buildToolbar().let { p ->
             p.setSize(width, 1); p.doLayout(); p.preferredSize.height
         }
-        val hNarrow = prefHeightAt(400)
         val hWide = prefHeightAt(900)
-        assertTrue(hNarrow > hWide, "窄面板 Preferred 高度应更大（$hNarrow vs $hWide）")
+        val hMedium = prefHeightAt(500)
+        val hNarrow = prefHeightAt(240)
+        assertTrue(hWide < hMedium && hMedium < hNarrow, "高度应随宽度收缩递增：$hWide < $hMedium < $hNarrow")
     }
 }

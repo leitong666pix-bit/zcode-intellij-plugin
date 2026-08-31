@@ -226,37 +226,28 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
 
     // ---------------------------------------------------------------- UI 组装
 
-    private fun buildToolbar(): JPanel {
-        val left = JPanel(FlowLayout(FlowLayout.LEFT, 2, 4)).apply {
-            isOpaque = false
-            add(newSessionButton)
-            add(resumeButton)
-            add(changedFilesButton)
-        }
-        val right = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 4)).apply {
-            isOpaque = false
-            add(statusLabel)
-            add(contextLabel)
-            add(modelCombo)
-            add(thoughtCombo)
-            add(modeCombo)
-        }
-        return JPanel(ResponsiveToolbarLayout(left, right)).apply {
-            isOpaque = false
-            border = JBUI.Borders.compound(
-                JBUI.Borders.empty(4, 10, 5, 10),
-                BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
-            )
-            add(left)
-            add(right)
-            // 父容器（BorderLayout NORTH）按 Preferred 高度给空间，而算高度时宽度可能还是旧值，
-            // 折行数会差一拍；这里补一手保证最终收敛到正确高度
-            addComponentListener(object : ComponentAdapter() {
-                override fun componentResized(e: ComponentEvent) {
-                    if (height != preferredSize.height) revalidate()
-                }
-            })
-        }
+    private fun buildToolbar(): JPanel = JPanel(ResponsiveToolbarLayout(leftCount = 3)).apply {
+        isOpaque = false
+        border = JBUI.Borders.compound(
+            JBUI.Borders.empty(4, 10, 5, 10),
+            BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
+        )
+        // 前 3 个 = 按钮组，后 5 个 = 标签+下拉；宽度放不下整条时按此顺序流式换行、每行铺满
+        add(newSessionButton)
+        add(resumeButton)
+        add(changedFilesButton)
+        add(statusLabel)
+        add(contextLabel)
+        add(modelCombo)
+        add(thoughtCombo)
+        add(modeCombo)
+        // 父容器（BorderLayout NORTH）按 Preferred 高度给空间，而算高度时宽度可能还是旧值，
+        // 折行数会差一拍；这里补一手保证最终收敛到正确高度
+        addComponentListener(object : ComponentAdapter() {
+            override fun componentResized(e: ComponentEvent) {
+                if (height != preferredSize.height) revalidate()
+            }
+        })
     }
 
     private fun buildContent(): JPanel = JPanel(BorderLayout(0, 0)).apply {
@@ -898,54 +889,24 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
 }
 
 /**
- * 工具栏自适应布局：宽度足够时左组（新会话/恢复/变更文件）靠左、右组（状态/上下文/下拉）靠右同排一行；
- * 放不下时折成两行——左组在上、右组在下（仍右对齐），组内再放不下时按 FlowLayout 规则继续折行。
+ * 工具栏自适应布局：子组件按加入顺序排成一条流，宽度不够时整条流换行、每行从左铺满
+ * （像文字折行，不存在一行大片留白、另一行挤爆的情况）；单行放得下时前 leftCount 个
+ * （按钮组）贴左、其余（标签+下拉）贴右，即宽面板的经典外观。
  *
- * 不能用 BorderLayout+EAST：右组会固定占满自身 Preferred 宽度，侧栏一窄左组就被压到 0 宽，
- * 按钮全部"消失"（旧版问题）。preferredLayoutSize 依据 target 当前宽度计算折行后的高度
- * （宽度未知时按单行估算），配合工具栏上的 componentResized→revalidate 兜底收敛。
+ * 替代方案都有缺陷：BorderLayout+EAST 在窄面板下把左组压成 0 宽（按钮"消失"）；
+ * 左右组各占一行的两行布局在中等宽度下上行右侧/下行左侧各留大片空隙。
+ * preferred 高度随当前宽度（折行数）变化，工具栏上挂 componentResized→revalidate 兜底收敛。
  */
-internal class ResponsiveToolbarLayout(
-    private val leftGroup: JComponent,
-    private val rightGroup: JComponent,
-) : LayoutManager {
-
-    private fun singleRowHeight(): Int =
-        maxOf(leftGroup.preferredSize.height, rightGroup.preferredSize.height)
-
-    /** 组在给定宽度内按 FlowLayout 折行需要的高度（各组件行高近似一致，用组单行高 × 行数）。 */
-    private fun wrappedHeight(group: JComponent, width: Int): Int {
-        val fl = group.layout as? FlowLayout ?: return group.preferredSize.height
-        val kids = group.components
-        if (kids.isEmpty()) return 0
-        var rows = 1
-        var x = 0
-        for (i in kids.indices) {
-            if (i > 0) x += fl.hgap
-            val w = kids[i].preferredSize.width
-            if (x > 0 && x + w > width) {
-                rows++
-                x = 0
-            }
-            x += w
-        }
-        val rowH = group.preferredSize.height
-        return rows * rowH + (rows - 1) * fl.vgap
-    }
+internal class ResponsiveToolbarLayout(private val leftCount: Int) : LayoutManager {
 
     override fun preferredLayoutSize(target: Container): Dimension {
         val ins = target.insets
-        val lw = leftGroup.preferredSize.width
-        val rw = rightGroup.preferredSize.width
-        val singleW = ins.left + lw + GROUP_GAP + rw + ins.right
-        val singleH = ins.top + singleRowHeight() + ins.bottom
-        val width = if (target.width > 0) target.width else singleW
-        if (singleW <= width) return Dimension(singleW, singleH)
-        val avail = width - ins.left - ins.right
-        val stackedH = ins.top +
-                wrappedHeight(leftGroup, avail) + ROW_GAP +
-                wrappedHeight(rightGroup, avail) + ins.bottom
-        return Dimension(singleW, stackedH)
+        val width = if (target.width > 0) target.width else rowWidth(target) + ins.left + ins.right
+        val avail = (width - ins.left - ins.right).coerceAtLeast(0)
+        val rows = computeRows(target, avail)
+        val h = ins.top + rows.sumOf { rowHeight(target, it) } +
+                (rows.size - 1) * VGAP + ins.bottom
+        return Dimension(rowWidth(target) + ins.left + ins.right, h)
     }
 
     override fun minimumLayoutSize(target: Container): Dimension = preferredLayoutSize(target)
@@ -954,32 +915,83 @@ internal class ResponsiveToolbarLayout(
         val ins = target.insets
         val avail = target.width - ins.left - ins.right
         if (avail <= 0) {
-            leftGroup.bounds = Rectangle(0, 0, 0, 0)
-            rightGroup.bounds = Rectangle(0, 0, 0, 0)
+            repeat(target.componentCount) { target.getComponent(it).setBounds(0, 0, 0, 0) }
             return
         }
-        val lw = leftGroup.preferredSize.width
-        val rw = rightGroup.preferredSize.width
-        if (lw + GROUP_GAP + rw <= avail) {
-            val h = maxOf(singleRowHeight(), target.height - ins.top - ins.bottom)
-            leftGroup.bounds = Rectangle(ins.left, ins.top, lw, h)
-            rightGroup.bounds = Rectangle(target.width - ins.right - rw, ins.top, rw, h)
-        } else {
-            val leftH = wrappedHeight(leftGroup, avail)
-            leftGroup.bounds = Rectangle(ins.left, ins.top, avail, leftH)
-            val rightH = wrappedHeight(rightGroup, avail)
-            rightGroup.bounds = Rectangle(ins.left, ins.top + leftH + ROW_GAP, avail, rightH)
+        val rows = computeRows(target, avail)
+        if (rows.size == 1) {
+            // 单行：左组贴左、右组贴右
+            val rowH = rowHeight(target, rows[0])
+            var xl = ins.left
+            for (i in 0 until leftCount.coerceAtMost(target.componentCount)) {
+                xl = place(target.getComponent(i), xl, ins.top, rowH) + HGAP
+            }
+            var xr = target.width - ins.right
+            for (i in target.componentCount - 1 downTo leftCount) {
+                val c = target.getComponent(i)
+                val w = c.preferredSize.width
+                c.setBounds(xr - w, ins.top + (rowH - c.preferredSize.height) / 2, w, c.preferredSize.height)
+                xr -= w + HGAP
+            }
+            return
         }
+        var y = ins.top
+        for (row in rows) {
+            val rowH = rowHeight(target, row)
+            var x = ins.left
+            for (i in row) {
+                x = place(target.getComponent(i), x, y, rowH) + HGAP
+            }
+            y += rowH + VGAP
+        }
+    }
+
+    private fun place(c: Component, x: Int, y: Int, rowH: Int): Int {
+        val ps = c.preferredSize
+        c.setBounds(x, y + (rowH - ps.height) / 2, ps.width, ps.height)
+        return x + ps.width
+    }
+
+    /** 折行：每行尽量放满（下一个放不下才换行），返回每行的组件下标。 */
+    private fun computeRows(target: Container, avail: Int): List<List<Int>> {
+        val rows = mutableListOf<MutableList<Int>>()
+        var cur = mutableListOf<Int>()
+        var x = 0
+        for (i in 0 until target.componentCount) {
+            val w = target.getComponent(i).preferredSize.width
+            if (x > 0 && x + HGAP + w > avail) {
+                rows.add(cur)
+                cur = mutableListOf()
+                x = 0
+            }
+            if (x > 0) x += HGAP
+            cur.add(i)
+            x += w
+        }
+        rows.add(cur)
+        return rows
+    }
+
+    private fun rowHeight(target: Container, row: List<Int>): Int =
+        row.maxOf { target.getComponent(it).preferredSize.height }
+
+    private fun rowWidth(target: Container): Int {
+        var x = 0
+        for (i in 0 until target.componentCount) {
+            if (x > 0) x += HGAP
+            x += target.getComponent(i).preferredSize.width
+        }
+        return x
     }
 
     override fun addLayoutComponent(name: String?, comp: Component?) {}
     override fun removeLayoutComponent(comp: Component?) {}
 
     private companion object {
-        /** 单行模式下左右两组之间的最小间距。 */
-        const val GROUP_GAP = 10
+        /** 同行相邻组件的水平间距。 */
+        const val HGAP = 8
 
-        /** 折行模式下两行之间的行距。 */
-        const val ROW_GAP = 4
+        /** 折行的行距。 */
+        const val VGAP = 4
     }
 }
