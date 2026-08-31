@@ -85,6 +85,13 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         foreground = ChatColors.dim
         font = JBFont.label().biggerOn(-1f)
     }
+
+    /** 上下文占用（来自订阅快照的 runtime.contextUsage，每轮结束刷新）；无数据时隐藏。 */
+    private val contextLabel = JBLabel().apply {
+        foreground = ChatColors.dim
+        font = JBFont.label().biggerOn(-1f)
+        isVisible = false
+    }
     private val inputArea = JBTextArea(3, 40).apply {
         lineWrap = true
         wrapStyleWord = true
@@ -142,6 +149,16 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         statusLabel.foreground = lastStatusColor
     }
 
+    /** 模式下拉 tooltip：官方中文名 + 官方一句说明（见 ZcodeSettings.Mode）。 */
+    private fun modeTooltip(m: ZcodeSettings.Mode) = "${m.label}：${m.desc}"
+
+    /** token 数缩写：999 → 999，45123 → 45k，1250000 → 1.3M。 */
+    private fun formatTokens(n: Long): String = when {
+        n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
+        n >= 1_000 -> "%.0fk".format(n / 1_000.0)
+        else -> n.toString()
+    }
+
     /** false = 面板当前显示空状态欢迎页，第一条消息到达时整体移除。 */
     private var chatStarted = false
 
@@ -150,19 +167,22 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         modeCombo.selectedIndex = ZcodeSettings.Mode.entries.indexOf(
             ZcodeSettings.Mode.fromId(service.currentMode())
         ).coerceAtLeast(0)
-        // 模式下拉只显示简短模式名（如 “edit”），完整说明放 tooltip；固定宽度避免把工具栏撑满
+        // 模式下拉显示官方中文模式名（ZcodeSettings.Mode.label），完整说明放 tooltip；
+        // 固定宽度避免把工具栏撑满（最长“变更前确认”5 个汉字 + 下拉箭头）
         modeCombo.renderer = SimpleListCellRenderer.create<String> { label, value, _ ->
-            label.text = value.substringBefore("(").substringBefore("（").trim()
+            label.text = value ?: ""
         }
-        modeCombo.preferredSize = Dimension(92, modeCombo.preferredSize.height)
-        modeCombo.toolTipText = modeCombo.selectedItem?.toString()
+        modeCombo.preferredSize = Dimension(104, modeCombo.preferredSize.height)
+        modeCombo.toolTipText = modeTooltip(ZcodeSettings.Mode.fromId(service.currentMode()))
 
         sendButton.addActionListener { doSend() }
         stopButton.addActionListener { service.stopCurrentTurn() }
         modeCombo.addActionListener {
             val idx = modeCombo.selectedIndex
-            ZcodeSettings.Mode.entries.getOrNull(idx)?.let { service.setMode(it.id) }
-            modeCombo.toolTipText = modeCombo.selectedItem?.toString()
+            ZcodeSettings.Mode.entries.getOrNull(idx)?.let {
+                service.setMode(it.id)
+                modeCombo.toolTipText = modeTooltip(it)
+            }
         }
         modelCombo.addActionListener {
             if (updatingModelCombo) return@addActionListener
@@ -217,6 +237,7 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         val right = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0)).apply {
             isOpaque = false
             add(statusLabel)
+            add(contextLabel)
             add(modelCombo)
             add(thoughtCombo)
             add(modeCombo)
@@ -528,7 +549,9 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
 
     private fun sessionRow(s: SessionSummary, onChoose: () -> Unit, onDelete: () -> Unit): JPanel {
         val time = SimpleDateFormat("MM-dd HH:mm").format(Date(s.updatedAt))
-        val label = JBLabel("[$time] ${s.title ?: "(无标题)"} · ${s.mode ?: "?"}").apply {
+        // mode 存的是协议 id（build/edit/plan/yolo），显示用官方中文名
+        val modeText = s.mode?.let { ZcodeSettings.Mode.fromId(it).label } ?: "?"
+        val label = JBLabel("[$time] ${s.title ?: "(无标题)"} · $modeText").apply {
             font = JBFont.label()
         }
         val delete = flatButton("", AllIcons.Actions.GC, "删除该会话", onDelete).apply {
@@ -755,6 +778,18 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
     override fun onHistoryCleared() {
         clearMessages()
         addWelcome()
+        // 新会话还没跑任何请求，快照里不会有 contextUsage，先收掉旧值
+        contextLabel.isVisible = false
+    }
+
+    override fun onContextUsage(usedTokens: Long, sizeTokens: Long) {
+        if (sizeTokens <= 0) return
+        val pct = usedTokens * 100.0 / sizeTokens
+        contextLabel.text = "上下文 ${formatTokens(usedTokens)}/${formatTokens(sizeTokens)}"
+        contextLabel.foreground = if (pct >= 80) JBColor.RED else ChatColors.dim
+        contextLabel.toolTipText =
+            "当前会话上下文占用：%,d / %,d tokens（%.1f%%）".format(usedTokens, sizeTokens, pct)
+        contextLabel.isVisible = true
     }
 
     override fun onModelsChanged(

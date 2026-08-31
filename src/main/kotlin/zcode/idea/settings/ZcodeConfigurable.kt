@@ -49,7 +49,7 @@ class ZcodeConfigurable : BoundConfigurable("ZCode") {
                                 ?: ZcodeSettings.Mode.EDIT.id
                     },
                 )
-                .comment("build/edit：文件修改等有副作用的工具会弹窗审批；plan 只读；yolo 全自动执行（谨慎）。")
+                .comment("变更前确认：改文件前先问我；自动编辑：直接改文件；计划模式：先出计划再动手；完全访问：减少确认（谨慎）。")
         }
         row {
             checkBox("发送消息时自动附带选区/活动文件上下文")

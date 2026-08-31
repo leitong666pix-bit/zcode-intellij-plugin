@@ -12,7 +12,7 @@
 | 方法 | params | result | 备注 |
 |---|---|---|---|
 | `session/create` | `{workspace:{workspaceKey,workspacePath}, mode?:"build\|edit\|plan\|yolo", model?:{providerId,modelId}, persistence?}` | `{session:{sessionId,mode,model,status,...}, projection, runtime:{eventSeq,...}, settings, messages:[]}` | sessionId 在 `result.session.sessionId`；`model` 显式指定初始模型（须在 workspace 模型目录中，见下文「模型目录」）；首次 create 会先发两个 server 请求（见下） |
-| `session/subscribe` | `{sessionId, deliveryKind:"desktop-continuous"\|"web-remote-replayable", afterSeq?:int, includeSnapshot?:bool}` | `{eventSeq, events:[...], sessionId}` | **订阅后正文事件才通过 `session/event` 通知推送**；`afterSeq` **不传只推订阅后的新事件**，传了则回放该 seq 之后的历史事件（断线补播用——恢复会话场景传 0 会重放全部历史，UI 若再渲染转录就重复一遍） |
+| `session/subscribe` | `{sessionId, deliveryKind:"desktop-continuous"\|"web-remote-replayable", afterSeq?:int, includeSnapshot?:bool}` | `{eventSeq, events:[...], sessionId, snapshot?}` | **订阅后正文事件才通过 `session/event` 通知推送**；`afterSeq` **不传只推订阅后的新事件**，传了则回放该 seq 之后的历史事件（断线补播用——恢复会话场景传 0 会重放全部历史，UI 若再渲染转录就重复一遍）。`includeSnapshot:true` 时回复带完整快照，**`snapshot.runtime.contextUsage = {used, size, cost?, cache?, breakdown?}` 是当前上下文占用**（`size` = 模型上下文窗口，如 glm-5.3 的 1000000；空会话/首轮前该字段缺省）。重复 subscribe 无副作用（不回放事件），可当快照轮询用——工具栏"上下文 x/y"即每轮 turn.completed 后再 subscribe 一次取新值（实测 `used` 与 turn.completed 的 `usage.totalTokens` 一致） |
 | `session/send` | `{sessionId, content:<string>, inputId?}` | `{accepted:true, sessionId, stateRevision, modelRuntimeRevision}` | 发出即返回；后续走通知流。同 session 并发第二条会被拒（-32010）。**图片输入不走 `attachments` 字段**（见「图片输入」） |
 | `session/stop` | `{sessionId}` | — | 中止当前 turn |
 | `session/read` | `{sessionId}` | `{messages:[{info:{role,messageId,model,time,tokens,finish,...}, parts:[...]}]}` | 完整转录（恢复会话渲染用）。只对进程内活跃会话可用 |

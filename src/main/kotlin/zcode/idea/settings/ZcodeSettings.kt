@@ -13,11 +13,15 @@ import com.intellij.openapi.components.Storage
 @Service(Service.Level.APP)
 class ZcodeSettings : PersistentStateComponent<ZcodeSettings.State> {
 
-    enum class Mode(val id: String, val label: String) {
-        BUILD("build", "build（构建：默认审批）"),
-        EDIT("edit", "edit（编辑：文件修改需审批）"),
-        PLAN("plan", "plan（只读规划）"),
-        YOLO("yolo", "yolo（全自动，谨慎）");
+    /**
+     * label/desc 逐字取自 ZCode 桌面端 i18n（app.asar 中 mode.label.glm.* / mode.description.glm.*），
+     * 与官方客户端显示保持一致；id 是 app-server session/setMode 的协议值，不可改动。
+     */
+    enum class Mode(val id: String, val label: String, val desc: String) {
+        BUILD("build", "变更前确认", "改文件前先问我。"),
+        EDIT("edit", "自动编辑", "自动编辑文件。"),
+        PLAN("plan", "计划模式", "编辑前先出计划。"),
+        YOLO("yolo", "完全访问", "减少确认次数。");
 
         companion object {
             fun fromId(id: String?): Mode = entries.firstOrNull { it.id == id } ?: EDIT

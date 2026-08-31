@@ -135,6 +135,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
         fun onToolCall(info: ToolCallInfo) {}
         fun onToolUpdate(info: ToolCallInfo) {}
         fun onTurnCompleted(summary: String) {}
+        fun onContextUsage(usedTokens: Long, sizeTokens: Long) {}
         fun onNotice(text: String, error: Boolean) {}
         fun onHistoryCleared() {}
         fun onModelsChanged(
@@ -636,12 +637,36 @@ class ZcodeSessionService(val project: Project) : Disposable {
         cliConfig?.resolvePreferred(preferredModelRef())
 
     private fun subscribeSession(c: AppServerClient, sid: String) {
+        // includeSnapshot=true：回复带 session 快照，runtime.contextUsage 是当前上下文占用（used/size），
+        // 用来驱动工具栏的“上下文 x/y”显示
+        val reply = subscribeRequest(c, sid).get(30, TimeUnit.SECONDS)
+        fireContextUsage(reply)
+    }
+
+    private fun subscribeRequest(c: AppServerClient, sid: String) =
         c.request("session/subscribe", JsonObject().apply {
             addProperty("sessionId", sid)
             addProperty("deliveryKind", "desktop-continuous")
             // 不传 afterSeq：服务端只在显式传 afterSeq 时才回放该 seq 之后的历史事件，缺省仅推送订阅之后的新事件
-        }).get(30, TimeUnit.SECONDS)
+            addProperty("includeSnapshot", true)
+        })
+
+    /** 每轮结束后刷新上下文占用：重复 subscribe（无 afterSeq 不回放事件）只为拿最新快照。 */
+    private fun pollContextUsage() {
+        val c = client ?: return
+        val sid = sessionId ?: return
+        subscribeRequest(c, sid).whenComplete { reply, _ -> reply?.let(::fireContextUsage) }
     }
+
+    private fun fireContextUsage(reply: JsonObject?) {
+        val usage = reply?.obj("snapshot")?.obj("runtime")?.obj("contextUsage") ?: return
+        val used = usage.get("used")?.takeIf { it.isJsonPrimitive }?.asLong ?: return
+        val size = usage.get("size")?.takeIf { it.isJsonPrimitive }?.asLong ?: return
+        fire { it.onContextUsage(used, size) }
+    }
+
+    private fun JsonObject.obj(member: String): JsonObject? =
+        get(member)?.takeIf { it.isJsonObject }?.asJsonObject
 
     /** 激活一个历史会话（session/read、session/send、session/subscribe 都只对活跃会话可用）。 */
     private fun activateSession(c: AppServerClient, id: String) {
@@ -766,6 +791,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
                     }
                 }
                 fire { it.onTurnCompleted(summary) }
+                pollContextUsage()
             }
         }
     }
