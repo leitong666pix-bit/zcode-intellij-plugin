@@ -22,6 +22,8 @@ object ZcodeCliConfig {
         val label: String?,
         val contextWindow: Long?,
         val maxOutputTokens: Long?,
+        /** 是否支持图像输入（来自桌面端 v2 配置的 modalities；null = 未知）。 */
+        val supportsImages: Boolean?,
     )
 
     data class ProviderInfo(
@@ -95,6 +97,7 @@ object ZcodeCliConfig {
                         m.label?.let { addProperty("label", it) }
                         m.contextWindow?.let { addProperty("contextWindow", it) }
                         m.maxOutputTokens?.let { addProperty("maxOutputTokens", it) }
+                        m.supportsImages?.let { addProperty("supportsImages", it) }
                     })
                 }
             })
@@ -108,6 +111,9 @@ object ZcodeCliConfig {
         val file = configFilePath()
         if (!file.isFile) return null
         val root = JsonParser.parseString(file.readText()).asJsonObject
+        // 桌面端配置里有各模型的输入模态（text/image/...），用它补全 supportsImages；
+        // 推给 app-server 后，runtime 才能正确放行/拦截图像输入
+        val imageCapable = imageCapabilitiesFromDesktopConfig()
         val providers = LinkedHashMap<String, ProviderInfo>()
         root.getAsJsonObject("provider")?.entrySet()?.forEach { (pid, pe) ->
             val p = pe.asJsonObject
@@ -123,6 +129,7 @@ object ZcodeCliConfig {
                         label = m.get("name")?.takeIf { !it.isJsonNull }?.asString,
                         contextWindow = limit?.get("context")?.takeIf { !it.isJsonNull }?.asLong,
                         maxOutputTokens = limit?.get("output")?.takeIf { !it.isJsonNull }?.asLong,
+                        supportsImages = imageCapable[mid.lowercase()],
                     )
                 )
             }
@@ -143,4 +150,23 @@ object ZcodeCliConfig {
             ?.let { ModelRef(it[0], it[1]) }
         CliConfig(providers, main)
     }.getOrNull()
+
+    /** ~/.zcode/v2/config.json（桌面端）里各模型是否支持图像输入，key 为小写 modelId。 */
+    private fun imageCapabilitiesFromDesktopConfig(): Map<String, Boolean> = runCatching {
+        val v2 = JsonParser.parseString(
+            File(File(System.getProperty("user.home"), ".zcode"), File("v2", "config.json").path).readText()
+        ).asJsonObject
+        val result = mutableMapOf<String, Boolean>()
+        v2.getAsJsonObject("provider")?.entrySet()?.forEach { (_, pe) ->
+            val models = pe.asJsonObject.getAsJsonObject("models") ?: return@forEach
+            models.entrySet().forEach { (mid, me) ->
+                val inputs = me.asJsonObject.getAsJsonObject("modalities")
+                    ?.getAsJsonArray("input") ?: return@forEach
+                result[mid.lowercase()] = inputs.any { el ->
+                    !el.isJsonNull && el.asString.equals("image", ignoreCase = true)
+                }
+            }
+        }
+        result
+    }.getOrDefault(emptyMap())
 }

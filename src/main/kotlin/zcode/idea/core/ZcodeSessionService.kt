@@ -48,9 +48,13 @@ data class ModelOption(
     val providerId: String,
     val modelId: String,
     val label: String,
+    val supportsImages: Boolean = false,
 ) {
     val display: String get() = label.ifBlank { "$providerId/$modelId" }
 }
+
+/** 待随消息发送的图片（本地文件）。 */
+data class ImageRef(val fileName: String, val absolutePath: String)
 
 /** 思考强度的一个可选项（值由服务端给定，如 low/high/max）。 */
 data class ThoughtLevelInfo(val value: String, val label: String)
@@ -160,10 +164,17 @@ class ZcodeSessionService(val project: Project) : Disposable {
     /**
      * 在 EDT 上调用：读取 IDE 上下文并发送一条用户消息。
      * [explicitContext] 为用户显式引用的上下文块（右键"引用选中代码"），非空时不再自动采集。
+     * [images] 为随消息发送的本地图片：app-server 协议的 attachments 只认服务端发放的
+     * artifact 引用（无客户端上传 RPC），但 runtime 会解析消息文本里的 Markdown 图片引用
+     * （多模态模型实测可见图），所以图片以内嵌 Markdown 方式追加。
      */
-    fun send(prompt: String, explicitContext: String? = null) {
+    fun send(prompt: String, explicitContext: String? = null, images: List<ImageRef> = emptyList()) {
         if (state == ConnectionState.RUNNING) {
             notice("上一轮仍在运行，请等待完成或点击停止", error = true)
+            return
+        }
+        if (images.isNotEmpty() && currentModel?.supportsImages != true) {
+            notice("当前模型 ${currentModel?.display ?: ""} 不支持图像输入，请先在模型下拉中切换到多模态模型", error = true)
             return
         }
         val basePath = project.basePath
@@ -171,12 +182,16 @@ class ZcodeSessionService(val project: Project) : Disposable {
             notice("当前项目没有磁盘路径，无法启动 zcode 会话", error = true)
             return
         }
+        val imageMd = images.joinToString("") { "\n\n![${it.fileName}](${imageUriOf(it.absolutePath)})" }
         val contextBlock: String? = explicitContext
             ?: if (settings.state.injectSelectionContext) {
                 SelectionContext.capture(project)
                     ?.let { SelectionContext.buildBlock(it, settings.state.maxSelectionChars) }
             } else null
-        fire { it.onUserEcho(prompt, contextBlock) }
+        // 回显气泡里把图片引用并进折叠上下文区，用户点开能看到发了什么
+        val displayBlock = (imageMd + (contextBlock ?: "")).trim('\n').ifEmpty { null }
+        fire { it.onUserEcho(prompt, displayBlock) }
+        val content = prompt + imageMd + (contextBlock ?: "")
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 ensureConnected()
@@ -188,7 +203,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
                 }
                 setState(ConnectionState.RUNNING, null)
                 try {
-                    sendWithSession(sid, prompt + (contextBlock ?: ""))
+                    sendWithSession(sid, content)
                 } catch (e: Exception) {
                     when (rpcCodeOf(e)) {
                         // 服务端认为该会话上一轮还没结束（如恢复了中断的会话）：stop 后重试一次
@@ -198,7 +213,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
                                 client?.request("session/stop", JsonObject().apply { addProperty("sessionId", sid) })
                                     ?.get(10, TimeUnit.SECONDS)
                             }
-                            sendWithSession(sid, prompt + (contextBlock ?: ""))
+                            sendWithSession(sid, content)
                         }
                         // 恢复的历史会话绑定的模型已不可用：fork 出一个继承全部历史的新会话继续
                         -32031 -> {
@@ -208,7 +223,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
                             notice("原会话绑定的模型已不可用，已切换到继承历史记录的新会话", error = false)
                             sessionId = forked
                             subscribeSession(client!!, forked)
-                            sendWithSession(forked, prompt + (contextBlock ?: ""))
+                            sendWithSession(forked, content)
                         }
                         else -> throw e
                     }
@@ -220,6 +235,9 @@ class ZcodeSessionService(val project: Project) : Disposable {
             }
         }
     }
+
+    /** Markdown 图片引用用 file:/// + 正斜杠路径（实测两种写法 runtime 都能解析）。 */
+    private fun imageUriOf(path: String): String = "file:///" + path.replace('\\', '/')
 
     private fun sendWithSession(sid: String, content: String) {
         val params = JsonObject().apply {
@@ -472,6 +490,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
                     providerId = ref.get("providerId")?.asString ?: return@mapNotNull null,
                     modelId = ref.get("modelId")?.asString ?: return@mapNotNull null,
                     label = label,
+                    supportsImages = o.get("supportsImages")?.takeIf { !it.isJsonNull }?.asBoolean ?: false,
                 )
             }
             if (options.isNotEmpty()) {

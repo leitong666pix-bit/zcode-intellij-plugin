@@ -5,7 +5,7 @@
         <toolWindow id="ZCode"
                     anchor="right"
                     factoryClass="zcode.idea.ui.ZcodeToolWindowFactory"
-                    icon="icons/zcode.svg"
+                    icon="icons/zcodeTool.png"
                     canCloseContents="false"/>
         <applicationConfigurable parentId="tools"
                                  id="zcode.idea.settings"

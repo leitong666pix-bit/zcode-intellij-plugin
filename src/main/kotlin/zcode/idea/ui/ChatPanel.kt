@@ -128,6 +128,11 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
     private var attachLabel: JBLabel? = null
     private var attachRow: JPanel? = null
 
+    /** 待发送的图片 chip（发送时以 Markdown 内嵌进消息文本）。 */
+    private val pendingImages = mutableListOf<zcode.idea.core.ImageRef>()
+    private var imagesRow: JPanel? = null
+    private var attachImageButton: JButton? = null
+
     /** 最近一次连接状态在状态栏上的呈现，临时提示（读取会话列表… 等）结束后恢复。 */
     private var lastStatusText: String = "● 未连接"
     private var lastStatusColor: Color = ChatColors.dim
@@ -182,6 +187,10 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
                     e.consume()
                     doSend()
                 }
+                // Ctrl+V：剪贴板里是图片时截获并暂存为待发图片，不落输入框
+                if (e.keyCode == java.awt.event.KeyEvent.VK_V && e.isControlDown) {
+                    pasteImageIfAvailable()?.let { e.consume() }
+                }
             }
         })
 
@@ -226,15 +235,101 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         val card = BubblePanel(ChatColors.card, arc = 12, outline = true).apply {
             layout = BorderLayout(0, 4)
             border = JBUI.Borders.empty(8, 10, 6, 10)
-            add(buildAttachRow().also { attachRow = it }, BorderLayout.NORTH)
+            // 北侧堆叠：引用选区条 + 图片 chips
+            val north = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.PAGE_AXIS)
+                isOpaque = false
+            }
+            north.add(buildAttachRow().also { attachRow = it })
+            north.add(buildImagesRow().also { imagesRow = it })
+            add(north, BorderLayout.NORTH)
             add(inputArea, BorderLayout.CENTER)
             add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
                 isOpaque = false
+                add(flatButton("附图", AllIcons.FileTypes.Any_type, "添加图片（当前模型支持图像时可用）") { chooseImageFile() }
+                    .also { attachImageButton = it })
                 add(stopButton)
                 add(sendButton)
             }, BorderLayout.SOUTH)
         }
         add(card, BorderLayout.CENTER)
+    }
+
+    /** 图片 chips 行：缩略图 + 文件名 + 移除，随 pendingImages 重建。 */
+    private fun buildImagesRow(): JPanel = JPanel(FlowLayout(FlowLayout.LEFT, 6, 2)).apply {
+        isOpaque = false
+        isVisible = false
+    }
+
+    private fun rebuildImageChips() {
+        val row = imagesRow ?: return
+        row.removeAll()
+        for (img in pendingImages.toList()) {
+            row.add(object : JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)) {
+                override fun getMaximumSize(): Dimension = Dimension(preferredSize.width, preferredSize.height)
+            }.apply {
+                isOpaque = false
+                border = BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(JBColor.border()),
+                    JBUI.Borders.empty(2, 4),
+                )
+                add(JBLabel().apply { icon = thumbnailOf(img.absolutePath) })
+                add(JBLabel(img.fileName).apply { font = JBFont.label().biggerOn(-2f) })
+                add(flatButton("", AllIcons.Actions.Close, "移除图片") {
+                    pendingImages.remove(img)
+                    rebuildImageChips()
+                }.apply { preferredSize = Dimension(20, 20) })
+            })
+        }
+        row.isVisible = pendingImages.isNotEmpty()
+        row.revalidate()
+        row.repaint()
+    }
+
+    /** 32px 缩略图；读失败时给空图标。 */
+    private fun thumbnailOf(path: String): javax.swing.Icon? = runCatching {
+        val image = javax.swing.ImageIcon(File(path).toURI().toURL()).image
+        val scaled = image.getScaledInstance(32, 32, java.awt.Image.SCALE_FAST)
+        javax.swing.ImageIcon(scaled)
+    }.getOrNull()
+
+    /** 文件选择器挑图片。 */
+    private fun chooseImageFile() {
+        val descriptor = com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
+            .createSingleFileDescriptor()
+            .withFileFilter { f ->
+                f.extension?.lowercase() in setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
+            }
+        descriptor.title = "选择要发送的图片"
+        com.intellij.openapi.fileChooser.FileChooser.chooseFile(descriptor, project, null)?.let { vf ->
+            val io = java.io.File(vf.path)
+            if (io.isFile) addImage(zcode.idea.core.ImageRef(io.name, io.absolutePath))
+        }
+    }
+
+    /** 暂存一张图片（粘贴或文件选择）。 */
+    private fun addImage(img: zcode.idea.core.ImageRef) {
+        if (service.currentModel?.supportsImages != true) {
+            showNoticePopup("当前模型 ${service.currentModel?.display ?: ""} 不支持图像输入，请先切换到多模态模型")
+            return
+        }
+        pendingImages.add(img)
+        rebuildImageChips()
+    }
+
+    private fun clearImages() {
+        // 不删临时文件：session/send 提前返回，runtime 在回合内才读取文件，删早了图就没了
+        pendingImages.clear()
+        imagesRow?.isVisible = false
+    }
+
+    /** 按当前模型能力启停附图入口。 */
+    private fun updateImageEntryState() {
+        val ok = service.currentModel?.supportsImages == true
+        attachImageButton?.apply {
+            isEnabled = ok
+            toolTipText = if (ok) "添加图片（可多张，随消息发送）" else "当前模型不支持图像输入"
+        }
     }
 
     /** 显式引用的选区上下文条：显示在输入框上方，可一键移除；tooltip 预览内容。 */
@@ -262,7 +357,7 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
 
     private fun buildEmptyState(): JPanel = JPanel(GridBagLayout()).apply {
         isOpaque = false
-        val icon = pluginIcon("/icons/zcode.svg", ChatPanel::class.java)
+        val icon = pluginIcon("/icons/zcode.png", ChatPanel::class.java)
         val content = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.PAGE_AXIS)
             isOpaque = false
@@ -295,13 +390,33 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         val attach = pendingAttach
         pendingAttach = null
         attachRow?.isVisible = false
+        val images = pendingImages.toList()
+        clearImages()
         val explicitContext = attach?.let {
             zcode.idea.context.SelectionContext.buildSelectionBlock(
                 it, ZcodeSettings.getInstance().state.maxSelectionChars,
             )
         }
-        service.send(text, explicitContext)
+        service.send(text, explicitContext, images)
     }
+
+    /** 剪贴板有图片时写入临时 PNG 并暂存，返回是否已处理。 */
+    private fun pasteImageIfAvailable(): Boolean = runCatching {
+        val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+        if (!clipboard.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.imageFlavor)) return false
+        val image = clipboard.getData(java.awt.datatransfer.DataFlavor.imageFlavor) as java.awt.Image
+        val dir = File(System.getProperty("java.io.tmpdir"), "zcode-idea-images").apply { mkdirs() }
+        val file = File(dir, "paste-${System.currentTimeMillis()}.png")
+        val buffered = if (image is java.awt.image.BufferedImage) image else {
+            java.awt.image.BufferedImage(image.getWidth(null), image.getHeight(null), java.awt.image.BufferedImage.TYPE_INT_ARGB).also {
+                it.graphics.drawImage(image, 0, 0, null)
+                it.graphics.dispose()
+            }
+        }
+        if (!javax.imageio.ImageIO.write(buffered, "png", file)) return false
+        addImage(zcode.idea.core.ImageRef(file.name, file.absolutePath))
+        true
+    }.getOrDefault(false)
 
     /** 编辑器右键"引用选中代码"入口：挂上待发送的选区上下文并把焦点交给输入框。 */
     fun attachSelection(info: zcode.idea.context.SelectionContext.Info) {
@@ -665,6 +780,8 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         thoughtCombo.toolTipText =
             if (thoughtLevels.isEmpty()) "思考强度（当前模型不支持）"
             else "思考强度：${thoughtLevels.joinToString(" / ") { it.value }}"
+
+        updateImageEntryState()
     }
 
     /** 思考强度值的中文显示；未知值原样显示。 */

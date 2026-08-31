@@ -109,7 +109,7 @@ class AssistantMessagePanel : JPanel(BorderLayout(0, 3)) {
     init {
         isOpaque = false
         border = JBUI.Borders.empty(6, 10, 2, 10)
-        val header = pluginIcon("/icons/zcode.svg", AssistantMessagePanel::class.java)
+        val header = pluginIcon("/icons/zcode.png", AssistantMessagePanel::class.java)
             ?.let { JBLabel("ZCode", it, SwingConstants.LEFT) }
             ?: JBLabel("ZCode")
         header.font = JBFont.label().asBold()
