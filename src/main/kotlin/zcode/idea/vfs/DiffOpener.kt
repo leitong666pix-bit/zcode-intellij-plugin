@@ -20,6 +20,14 @@ object DiffOpener {
                 Messages.showInfoMessage("文件不存在：${changed.path}", "ZCode")
                 return@invokeLater
             }
+            if (changed.fromHistory && changed.oldContent == null) {
+                // 历史回填没有修改前快照：不能按空文件对比（会被误读成"从空文件创建"）
+                Messages.showInfoMessage(
+                    "该文件修改自恢复的历史会话，没有修改前的内容快照，无法生成 diff。\n文件：${changed.path}",
+                    "ZCode",
+                )
+                return@invokeLater
+            }
             val factory = DiffContentFactory.getInstance()
             val old = changed.oldContent ?: "" // 新建文件：修改前为空
             val c1 = factory.create(old)

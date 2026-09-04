@@ -1,3 +1,6 @@
+import java.io.File
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "2.2.10"
@@ -5,7 +8,7 @@ plugins {
 }
 
 group = "zcode.idea"
-version = "0.1.0"
+version = "0.1.1"
 
 repositories {
     maven("https://maven.aliyun.com/repository/public")
@@ -15,14 +18,14 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        if (System.getenv("CI") == "true") {
-            // CI（GitHub Actions）：远程拉取平台依赖（约 1-2GB，有缓存）。
-            // 基线取最低支持版本 2024.2：在此编译通过即可保证 sinceBuild=242 全程可运行
-            // （JBHtmlPane 用的是 242/252 共有的两参构造，见 ChatUi.kt）。
-            intellijIdea("2024.2")
+        // 本机开发零下载：用 -PlocalIdePath=<IDEA 安装目录>（配置在 gradle.properties，换机器请改/删）。
+        // 未配置或路径无效时回落远程 2024.2 基线（CI 与其他贡献者机器）：
+        // 在此编译通过即可保证 sinceBuild=242 全程可运行（JBHtmlPane 用的是 242/252 共有的两参构造，见 ChatUi.kt）
+        val localIde = providers.gradleProperty("localIdePath").orNull?.trim()?.takeIf { File(it).isDirectory }
+        if (localIde != null) {
+            local(localIde)
         } else {
-            // 本机开发：直接用本地安装的 IDEA，零下载
-            local("D:/IntelliJ/IntelliJ IDEA 2025.2.4")
+            intellijIdea("2024.2")
         }
     }
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
@@ -53,6 +56,13 @@ intellijPlatform {
         ideaVersion {
             sinceBuild = "242"
             untilBuild = provider { null }
+        }
+    }
+    pluginVerification {
+        ides {
+            // 最低支持基线 + 一个较新版本：CI 里跑 runPluginVerifier 兜底 API 兼容性
+            create(IntelliJPlatformType.IntellijIdeaCommunity, "2024.2")
+            create(IntelliJPlatformType.IntellijIdeaCommunity, "2025.2")
         }
     }
 }

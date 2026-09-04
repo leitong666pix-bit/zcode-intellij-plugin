@@ -66,8 +66,8 @@
     },
     "parentMessageId": "msg_mtcdi7uq_3079efec-1473-426f-aa32-14761ebc1cb6",
     "path": {
-     "cwd": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws",
-     "root": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"
+     "cwd": "C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws",
+     "root": "C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws"
     },
     "role": "assistant",
     "semantics": {
@@ -196,8 +196,8 @@
     },
     "parentMessageId": "msg_mtcdibm7_d3f08482-0235-47ea-b9c6-cab17bd9adbd",
     "path": {
-     "cwd": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws",
-     "root": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"
+     "cwd": "C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws",
+     "root": "C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws"
     },
     "role": "assistant",
     "semantics": {
@@ -239,7 +239,7 @@
        "signature": "d3eb25ebc28e45209916e9e9"
       }
      },
-     "text": "The user wants me to create a file named ok2.txt with content \"ok2\". Simple task - use the Write tool. The working directory is C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws. I'll write to that path.",
+     "text": "The user wants me to create a file named ok2.txt with content \"ok2\". Simple task - use the Write tool. The working directory is C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws. I'll write to that path.",
      "type": "reasoning"
     },
     {
@@ -250,7 +250,7 @@
      "state": {
       "completedAt": 1787886584253,
       "input": {
-       "file_path": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt",
+       "file_path": "C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt",
        "content": "ok2"
       },
       "metadata": {
@@ -262,7 +262,7 @@
         "budgetStrategy": "truncate"
        }
       },
-      "output": "File created successfully at: C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt (file state is current in your context — no need to Read it back)",
+      "output": "File created successfully at: C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt (file state is current in your context — no need to Read it back)",
       "startedAt": 1787886584235,
       "status": "completed",
       "title": "Write"
@@ -302,8 +302,8 @@
     },
     "parentMessageId": "msg_mtcdibm7_d3f08482-0235-47ea-b9c6-cab17bd9adbd",
     "path": {
-     "cwd": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws",
-     "root": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"
+     "cwd": "C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws",
+     "root": "C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws"
     },
     "role": "assistant",
     "semantics": {
@@ -447,8 +447,8 @@
   "titleSource": "generated",
   "updatedAt": 1787886585751,
   "workspace": {
-   "workspacePath": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws",
-   "workspaceKey": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws"
+   "workspacePath": "C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws",
+   "workspaceKey": "C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws"
   }
  },
  "settings": {

@@ -62,7 +62,7 @@
 │  │  ├ reader 线程：逐行解析 stdout，分发 响应/通知/服务器请求            │     │
 │  │  └ writer（同步锁）：stdin 写请求/应答                               │     │
 │  └──────────────┬────────────────────────────────────────────────────┘     │
-│                 │ spawn: node <zcode.cjs> app-server --cwd <项目根>         │
+│                 │ spawn: node <zcode.cjs> app-server（cwd=项目根）    │
 │  支撑层           ▼                                                        │
 │  ├ runtime/RuntimeResolver：node + zcode.cjs 自动探测（桌面端优先，可覆盖）        │
 │  ├ context/SelectionContext：发送时 ReadAction 采集选区/活动文件            │
@@ -340,8 +340,9 @@ plugins { id("java"); id("org.jetbrains.kotlin.jvm") version "2.2.10"; id("org.j
 
 dependencies {
     intellijPlatform {
-        local("D:/IntelliJ/IntelliJ IDEA 2025.2.4")   // 本机 IDE，零下载
-        // intellijIdea("2024.2")                       // 换机器/CI：远程拉取（1-2GB），基线=最低支持版本
+        // 属性化本地 IDE（gradle.properties: localIdePath=...），未配置/无效时回落远程 2024.2 基线
+        val localIde = providers.gradleProperty("localIdePath").orNull?.trim()?.takeIf { File(it).isDirectory }
+        if (localIde != null) local(localIde) else intellijIdea("2024.2")
     }
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation("junit:junit:4.13.2")   // ★ 平台 JUnit5 初始化器内部引用 JUnit4 类，缺了直接 NoClassDefFound
@@ -390,6 +391,7 @@ intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "242"; until
 10. **删除会话直写 sqlite**：协议无删除 RPC；`session` 表外键级联 + node 内置 `node:sqlite`（无需给插件引入 JDBC 依赖），busy_timeout 兼容 WAL 并发。
 11. **runtime 探测桌面端优先**：官方桌面端与 npm 包同源可互换（探针全链路验证），优先桌面端可摆脱第三方依赖；npm 作回退兼顾未装桌面端的机器。
 12. **悬停高亮用不透明纯色**：半透明色 + opaque 切换在 Swing 下不清底，反复悬停叠加残影（会话列表初版翻车点）。
+13. **消息排队 + `turn.completed` 为轮次结束的权威信号**：运行中发送的消息入队（气泡延迟到真正发出时回显，问答相邻成对）；派发/出队由本端 `turnActive` 门控——从派发置位到收到 `turn.completed`/`idle` 才清除——不信任 `state.updated` 的时序（实测用户环境的 runtime 会在轮次中途提前推送 `prompt_completed`，曾把第二条消息放进正在流式的轮次：回答文本被劈到两个气泡、第二条消息不被回答）。停止/断连/切换会话清空队列。
 
 ---
 
@@ -397,8 +399,8 @@ intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "242"; until
 
 **当前限制**
 - Markdown 渲染为轻量自研（代码块无语法高亮）；工具参数 tooltip 为原始 JSON。
-- 运行中不支持排队消息；每项目一个会话进程。
-- ApplyPatch 输入不解析路径（不进变更文件表）；恢复历史回填的文件无旧内容（diff 左侧为空）。
+- 运行中发送的消息自动排队、逐轮顺序发出（气泡在真正发出时才回显，保证问答相邻；停止/断连/切换会话时清空队列）；每项目一个会话进程。
+- ApplyPatch 输入不解析路径（不进变更文件表）；恢复历史回填的变更只登记写工具，且无修改前快照时会提示"无法 diff"（不再误显示为从空文件创建）。
 - 图片临时文件（`%TEMP%/zcode-idea-images/`）发送后不清理（runtime 异步读取），依赖系统清理临时目录。
 - 设置为应用级（跨项目共享运行时路径）；无国际化文件（硬编码中文）。
 - Settings → Plugins 列表里的插件条目图标（`pluginIcon.svg`）缺失：平台只收 SVG，官方只有 PNG，暂用 IDE 默认图标。
@@ -406,7 +408,7 @@ intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "242"; until
 **路线图**
 1. **Phase 6a（协议已支持）**：IDE 内起 http/sse MCP server 暴露 `getDiagnostics`（IDEA 诊断）等工具，注册到项目级 `.zcode/config.json` 的 `mcp.servers`（bundle 静态分析已确认支持 `type:"http"|"sse"` + url 配置）。
 2. **Phase 6b**：设置项"IDE 会话禁用 zcode LSP 插件"（项目级配置覆盖 `plugins`），消除 jdtls/tsserver 双份开销。
-3. 终端 TUI 模式（复用同一集成层）、Markdown 渲染、变更文件实时侧栏、消息排队、`session/fork`/`rewind`、多会话 tab。
+3. 终端 TUI 模式（复用同一集成层）、Markdown 渲染、变更文件实时侧栏、`session/fork`/`rewind`、多会话 tab。
 
 ---
 
@@ -416,8 +418,8 @@ intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "242"; until
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `nodePath` | ""（自动） | node.exe 完整路径；空→ `where node` → 常见安装位置 |
-| `runtimePath` | ""（自动） | zcode.cjs 路径；空→ ① ZCode 桌面端常见路径（`%LOCALAPPDATA%\Programs\ZCode`、`C:\Program Files\ZCode`、`D:\Tools\ZCode` 的 `resources\glm\zcode.cjs`）② npm 全局 `zcode-app-cli\vendor\zcode.cjs` ③ `where zcode` shim 反推 |
+| `nodePath` | ""（自动） | node.exe 完整路径；空→ `where node` → 常见安装位置（Windows `C:\Program Files\nodejs`、Unix `/usr/local/bin`、`/opt/homebrew/bin`）。找到后实跑 `node --version` 校验 >= 22.19，不达标报错 |
+| `runtimePath` | ""（自动） | zcode.cjs 路径；空→ ① ZCode 桌面端常见路径（`%LOCALAPPDATA%\Programs\ZCode`、`C:\Program Files\ZCode`、macOS `/Applications/ZCode.app` 的 `Contents/Resources/glm/zcode.cjs`）② npm 全局 `zcode-app-cli\vendor\zcode.cjs` ③ `where zcode` shim 反推 |
 | `defaultMode` | `edit` | build/edit/plan/yolo（create 时传入；运行中可切，session/setMode 尽力同步） |
 | `injectSelectionContext` | true | 发送时自动附 IDE 上下文 |
 | `maxSelectionChars` | 8000 | 选区注入截断上限 |

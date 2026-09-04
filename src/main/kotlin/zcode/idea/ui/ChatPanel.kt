@@ -1,6 +1,7 @@
 package zcode.idea.ui
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
@@ -21,6 +22,7 @@ import zcode.idea.core.AssistantDeltaKind
 import zcode.idea.core.ConnectionState
 import zcode.idea.core.ModelOption
 import zcode.idea.core.SessionSummary
+import zcode.idea.core.ThoughtLevelInfo
 import zcode.idea.core.ToolCallInfo
 import zcode.idea.core.ZcodeSessionService
 import zcode.idea.settings.ZcodeSettings
@@ -105,16 +107,16 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
     private val sendButton = JButton("发送")
     private val stopButton = JButton("停止").apply { isEnabled = false }
     private val modeCombo = JComboBox(ZcodeSettings.Mode.entries.map { it.label }.toTypedArray())
-    private val modelCombo = JComboBox<String>().apply {
+    private val modelCombo = JComboBox<ModelOption>().apply {
         isEnabled = false
         toolTipText = "模型（连接后自动加载）"
-        renderer = SimpleListCellRenderer.create { label, value, _ -> label.text = value ?: "" }
+        renderer = SimpleListCellRenderer.create { label, value, _ -> label.text = value?.display ?: "" }
         preferredSize = Dimension(128, preferredSize.height)
     }
-    private val thoughtCombo = JComboBox<String>().apply {
+    private val thoughtCombo = JComboBox<ThoughtLevelInfo>().apply {
         isEnabled = false
         toolTipText = "思考强度（当前模型支持时可选）"
-        renderer = SimpleListCellRenderer.create { label, value, _ -> label.text = value ?: "" }
+        renderer = SimpleListCellRenderer.create { label, value, _ -> label.text = value?.let { thoughtLabel(it.value) } ?: "" }
         preferredSize = Dimension(84, preferredSize.height)
     }
 
@@ -132,6 +134,9 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
 
     /** 下拉加载会话列表期间置位，防止连点重复弹窗。 */
     private var listingSessions = false
+
+    /** 输入法组合态（拼音候选未提交）：期间 Enter 只提交候选词，不发送消息。 */
+    private var imeComposing = false
 
     /** 右键"引用选中代码"附带的上下文（发送时作为显式上下文，优先于自动采集）。 */
     private var pendingAttach: zcode.idea.context.SelectionContext.Info? = null
@@ -189,32 +194,40 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         }
         modelCombo.addActionListener {
             if (updatingModelCombo) return@addActionListener
-            val display = modelCombo.selectedItem as? String ?: return@addActionListener
-            service.availableModels.firstOrNull { it.display == display }?.let { service.selectModel(it) }
+            (modelCombo.selectedItem as? ModelOption)?.let { service.selectModel(it) }
         }
         thoughtCombo.addActionListener {
             if (updatingThoughtCombo) return@addActionListener
-            val display = thoughtCombo.selectedItem as? String ?: return@addActionListener
-            service.availableThoughtLevels.firstOrNull { thoughtLabel(it.value) == display || it.label == display }
-                ?.let { service.selectThoughtLevel(it.value) }
+            (thoughtCombo.selectedItem as? ThoughtLevelInfo)?.let { service.selectThoughtLevel(it.value) }
         }
 
         inputArea.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(e: DocumentEvent) {
-                sendButton.isEnabled = inputArea.text.isNotBlank() && service.state != ConnectionState.RUNNING
+                // 运行中也可发送：消息自动排队，当前轮结束后顺序发出
+                sendButton.isEnabled = inputArea.text.isNotBlank()
             }
         })
         inputArea.addKeyListener(object : java.awt.event.KeyAdapter() {
             override fun keyPressed(e: java.awt.event.KeyEvent) {
-                if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER && e.modifiersEx == 0) {
+                // IME 组合未提交时 Enter 只交给输入法（提交候选词），不触发发送
+                if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER && e.modifiersEx == 0 && !imeComposing) {
                     e.consume()
                     doSend()
                 }
-                // Ctrl+V：剪贴板里是图片时截获并暂存为待发图片，不落输入框
+                // Ctrl+V：剪贴板里是图片时截获并暂存为待发图片；纯文本不消费，交给默认粘贴
                 if (e.keyCode == java.awt.event.KeyEvent.VK_V && e.isControlDown) {
-                    pasteImageIfAvailable()?.let { e.consume() }
+                    if (pasteImageIfAvailable()) e.consume()
                 }
             }
+        })
+        // 跟踪输入法组合状态（拼音候选框未提交期间），见上 keyPressed 的 Enter 分支
+        inputArea.addInputMethodListener(object : java.awt.event.InputMethodListener {
+            override fun inputMethodTextChanged(e: java.awt.event.InputMethodEvent?) {
+                val composed = e?.text
+                imeComposing = composed != null && composed.beginIndex != composed.endIndex
+            }
+
+            override fun caretPositionChanged(e: java.awt.event.InputMethodEvent?) {}
         })
 
         toolbar = buildToolbar()
@@ -268,7 +281,7 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
             north.add(buildAttachRow().also { attachRow = it })
             north.add(buildImagesRow().also { imagesRow = it })
             add(north, BorderLayout.NORTH)
-            add(inputArea, BorderLayout.CENTER)
+            add(inputScroll(), BorderLayout.CENTER)
             add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
                 isOpaque = false
                 add(flatButton("附图", AllIcons.FileTypes.Any_type, "添加图片（当前模型支持图像时可用）") { chooseImageFile() }
@@ -278,6 +291,20 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
             }, BorderLayout.SOUTH)
         }
         add(card, BorderLayout.CENTER)
+    }
+
+    /** 输入区滚动容器：限制最大高度，长文本在框内滚动而不是把工具窗口撑爆。 */
+    private fun inputScroll(): JBScrollPane {
+        val pane = object : JBScrollPane(inputArea) {
+            override fun getPreferredSize(): Dimension {
+                val p = super.getPreferredSize()
+                return Dimension(p.width, p.height.coerceAtMost(JBUI.scale(160)))
+            }
+        }
+        pane.border = JBUI.Borders.empty()
+        pane.verticalScrollBar.unitIncrement = 18
+        pane.horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        return pane
     }
 
     /** 图片 chips 行：缩略图 + 文件名 + 移除，随 pendingImages 重建。 */
@@ -298,7 +325,13 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
                     BorderFactory.createLineBorder(JBColor.border()),
                     JBUI.Borders.empty(2, 4),
                 )
-                add(JBLabel().apply { icon = thumbnailOf(img.absolutePath) })
+                add(JBLabel().also { label ->
+                    // 解码/缩放开销可能不小，放后台线程；完成后回 EDT 设置图标
+                    ApplicationManager.getApplication().executeOnPooledThread {
+                        val icon = thumbnailOf(img.absolutePath)
+                        ApplicationManager.getApplication().invokeLater { label.icon = icon }
+                    }
+                })
                 add(JBLabel(img.fileName).apply { font = JBFont.label().biggerOn(-2f) })
                 add(flatButton("", AllIcons.Actions.Close, "移除图片") {
                     pendingImages.remove(img)
@@ -425,21 +458,29 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         service.send(text, explicitContext, images)
     }
 
-    /** 剪贴板有图片时写入临时 PNG 并暂存，返回是否已处理。 */
+    /** 剪贴板有图片时截获并暂存为待发图片，返回是否已处理；PNG 编码放后台线程，不卡 EDT。 */
     private fun pasteImageIfAvailable(): Boolean = runCatching {
         val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
         if (!clipboard.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.imageFlavor)) return false
         val image = clipboard.getData(java.awt.datatransfer.DataFlavor.imageFlavor) as java.awt.Image
-        val dir = File(System.getProperty("java.io.tmpdir"), "zcode-idea-images").apply { mkdirs() }
-        val file = File(dir, "paste-${System.currentTimeMillis()}.png")
-        val buffered = if (image is java.awt.image.BufferedImage) image else {
-            java.awt.image.BufferedImage(image.getWidth(null), image.getHeight(null), java.awt.image.BufferedImage.TYPE_INT_ARGB).also {
-                it.graphics.drawImage(image, 0, 0, null)
-                it.graphics.dispose()
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val file = runCatching {
+                val dir = File(System.getProperty("java.io.tmpdir"), "zcode-idea-images").apply { mkdirs() }
+                val f = File(dir, "paste-${System.currentTimeMillis()}.png")
+                val buffered = if (image is java.awt.image.BufferedImage) image else {
+                    java.awt.image.BufferedImage(image.getWidth(null), image.getHeight(null), java.awt.image.BufferedImage.TYPE_INT_ARGB).also {
+                        it.graphics.drawImage(image, 0, 0, null)
+                        it.graphics.dispose()
+                    }
+                }
+                if (javax.imageio.ImageIO.write(buffered, "png", f)) f else null
+            }.getOrNull()
+            if (file != null) {
+                ApplicationManager.getApplication().invokeLater {
+                    addImage(zcode.idea.core.ImageRef(file.name, file.absolutePath))
+                }
             }
         }
-        if (!javax.imageio.ImageIO.write(buffered, "png", file)) return false
-        addImage(zcode.idea.core.ImageRef(file.name, file.absolutePath))
         true
     }.getOrDefault(false)
 
@@ -619,30 +660,40 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
             onTranscript = { entries ->
                 restoreStatus()
                 // 和实时渲染保持一致：同一轮的思考+正文进同一个 AssistantMessagePanel
-                //（思考在折叠区、正文在 body），只有换到用户消息才切面板
+                //（思考在折叠区、正文在 body），只有换到用户消息才切面板。
+                // 分批渲染：超长历史一次性建组件会卡住 EDT
                 var assistant: AssistantMessagePanel? = null
                 fun flushAssistant() {
                     assistant?.let { it.done(null); appendMessage(it) }
                     assistant = null
                 }
-                for (entry in entries) {
-                    when {
-                        entry.role == "user" && entry.text != null -> {
-                            flushAssistant()
-                            // 历史里的用户消息可能拼着注入的 IDE 上下文块，拆开并把上下文折叠展示
-                            val (prompt, ctx) = zcode.idea.context.SelectionContext.splitContext(entry.text!!)
-                            appendMessage(UserMessagePanel(prompt, ctx))
+                fun renderBatch(from: Int) {
+                    val end = (from + 50).coerceAtMost(entries.size)
+                    for (idx in from until end) {
+                        val entry = entries[idx]
+                        when {
+                            entry.role == "user" && entry.text != null -> {
+                                flushAssistant()
+                                // 历史里的用户消息可能拼着注入的 IDE 上下文块，拆开并把上下文折叠展示
+                                val (prompt, ctx) = zcode.idea.context.SelectionContext.splitContext(entry.text!!)
+                                appendMessage(UserMessagePanel(prompt, ctx))
+                            }
+                            entry.reasoning != null ->
+                                (assistant ?: AssistantMessagePanel().also { assistant = it }).appendReasoning(entry.reasoning!!)
+                            entry.toolName != null ->
+                                appendMessage(dimLabel(entry.toolName!!).apply { border = JBUI.Borders.empty(2, 10) })
+                            entry.text != null ->
+                                (assistant ?: AssistantMessagePanel().also { assistant = it }).appendText(entry.text!!)
                         }
-                        entry.reasoning != null ->
-                            (assistant ?: AssistantMessagePanel().also { assistant = it }).appendReasoning(entry.reasoning!!)
-                        entry.toolName != null ->
-                            appendMessage(dimLabel(entry.toolName!!).apply { border = JBUI.Borders.empty(2, 10) })
-                        entry.text != null ->
-                            (assistant ?: AssistantMessagePanel().also { assistant = it }).appendText(entry.text!!)
+                    }
+                    if (end < entries.size) {
+                        SwingUtilities.invokeLater { renderBatch(end) }
+                    } else {
+                        flushAssistant()
+                        scrollToBottom(force = true)
                     }
                 }
-                flushAssistant()
-                scrollToBottom()
+                renderBatch(0)
             },
             onError = {
                 restoreStatus()
@@ -691,11 +742,15 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         scrollToBottom()
     }
 
-    private fun scrollToBottom() {
-        // 两跳 invokeLater：等布局把 preferred 高度算完再贴底
+    /** [force]=false 时仅在用户仍贴底时跟随：流式期间上翻阅读不被拽回底部。 */
+    private fun scrollToBottom(force: Boolean = false) {
+        // 两跳 invokeLater：等布局把 preferred 高度算完再判断/贴底
         SwingUtilities.invokeLater {
             SwingUtilities.invokeLater {
-                scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
+                val bar = scroll.verticalScrollBar
+                val gap = bar.maximum - bar.value - bar.visibleAmount
+                val threshold = (scroll.viewport.height / 3).coerceAtLeast(JBUI.scale(80))
+                if (force || gap < threshold) bar.value = bar.maximum
             }
         }
     }
@@ -704,7 +759,7 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         messagesPanel.revalidate()
         messagesPanel.repaint()
         val running = service.state == ConnectionState.RUNNING
-        sendButton.isEnabled = !running && inputArea.text.isNotBlank()
+        sendButton.isEnabled = inputArea.text.isNotBlank()
         stopButton.isEnabled = running
         changedFilesButton.text = "变更文件 (${service.changedFilesSnapshot().size})"
     }
@@ -727,8 +782,10 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
     }
 
     override fun onUserEcho(text: String, contextBlock: String?) {
-        appendMessage(UserMessagePanel(text, contextBlock))
+        // 防御：异常时序下上一轮助手面板可能没收尾（思考区悬着），先收掉再上新气泡
+        currentAssistant?.done(null)
         currentAssistant = null
+        appendMessage(UserMessagePanel(text, contextBlock))
     }
 
     override fun onAssistantDelta(kind: AssistantDeltaKind, text: String) {
@@ -804,16 +861,18 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
     ) {
         updatingModelCombo = true
         modelCombo.removeAllItems()
-        models.forEach { modelCombo.addItem(it.display) }
-        current?.let { modelCombo.selectedItem = it.display }
+        models.forEach { modelCombo.addItem(it) }
+        current?.let { modelCombo.selectedItem = it }
         updatingModelCombo = false
         modelCombo.isEnabled = models.isNotEmpty()
         modelCombo.toolTipText = current?.let { "当前模型：${it.providerId}/${it.modelId}" } ?: "模型（连接后自动加载）"
 
         updatingThoughtCombo = true
         thoughtCombo.removeAllItems()
-        thoughtLevels.forEach { thoughtCombo.addItem(thoughtLabel(it.value)) }
-        currentThoughtLevel?.let { thoughtCombo.selectedItem = thoughtLabel(it) }
+        thoughtLevels.forEach { thoughtCombo.addItem(it) }
+        currentThoughtLevel?.let { cur ->
+            thoughtLevels.firstOrNull { it.value == cur }?.let { thoughtCombo.selectedItem = it }
+        }
         updatingThoughtCombo = false
         thoughtCombo.isEnabled = thoughtLevels.isNotEmpty()
         thoughtCombo.toolTipText =

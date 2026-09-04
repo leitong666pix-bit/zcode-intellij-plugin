@@ -25,7 +25,7 @@ IDEA 插件（Kotlin）
  ├─ ToolWindow 聊天面板（Swing，流式渲染助手输出/工具卡片）
  ├─ ZcodeSessionService —— 会话/进程管理，事件流翻译
  │    ├─ AppServerClient —— stdio 上的行式 JSON-RPC（ZCode Protocol）
- │    │    └─ spawn: node <zcode.cjs> app-server --cwd <项目根>（桌面端同款通道）
+ │    │    └─ spawn: node <zcode.cjs> app-server（cwd=项目根，桌面端同款通道）
  │    └─ ZcodeCliConfig —— 解析 ~/.zcode 配置，构造模型目录回推与 runtimeModel
  ├─ SelectionContext —— 发送时读取编辑器选区/活动文件，注入 prompt
  └─ VFS 刷新 + DiffManager —— 感知并展示 zcode 对磁盘文件的修改
@@ -37,10 +37,12 @@ IDEA 插件（Kotlin）
 
 - IntelliJ IDEA 2024.2+（CI 以 2024.2 为编译基线，本地开发用 2025.2.4；下限 API 已对 242 官方源码核对）
 - JDK 21（用于构建；运行由 IDE 自带 JBR）
-- Node.js >= 22.19（需内置 `node:sqlite`，删除历史会话时用到）
+- Node.js >= 22.19（插件会实际执行 `node --version` 校验；删除历史会话用到内置 `node:sqlite`）
 - zcode 运行时（自动探测顺序如下，均可在设置页覆盖）：
-  1. **ZCode 桌面端**安装目录（`<安装目录>\resources\glm\zcode.cjs`，首选，无需第三方包）
+  1. **ZCode 桌面端**安装目录（Windows：`<安装目录>\resources\glm\zcode.cjs`；macOS：`/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs`，首选，无需第三方包）
   2. `zcode-app-cli`（`npm i -g zcode-app-cli`，npm 全局目录下 `vendor/zcode.cjs`，回退）
+
+> 平台支持：Windows 为主力测试平台；macOS/Linux 也可运行（node/ZCode 桌面端/npm 包均可被探测到），但实测较少，遇到问题欢迎提 issue。
 - 已配置凭证：`~/.zcode/cli/config.json`（provider + API key，或已通过 `zcode login` 等方式配置）；多模态识别依赖 `~/.zcode/v2/config.json` 中的模型 modalities 元数据（桌面端维护，装了桌面端就有）
 
 ## 构建与安装
@@ -57,14 +59,14 @@ export JAVA_HOME="C:/Users/<你>/.jdks/corretto-21.0.12.1"
 
 IDEA 中安装：Settings → Plugins → ⚙ → Install Plugin from Disk → 选择上面的 zip。
 
-> 构建默认使用本机 IDEA（`build.gradle.kts` 中 `local("D:/IntelliJ/...")`）。
-> 换机器时改为 `intellijIdea("2024.2")`（联网下载平台依赖；基线取最低支持版本）。
+> 构建默认使用本机 IDEA：`gradle.properties` 里的 `localIdePath` 指向本机安装目录。
+> 换机器请改成你的 IDEA 目录，或删掉该行走远程下载（`intellijIdea("2024.2")`，基线取最低支持版本）。
 
 开发调试：`./gradlew.bat runIde`（沙箱 IDE）。
 
 ## 使用
 
-1. 打开右侧 **ZCode** 工具窗口，直接输入问题（Enter 发送，Shift+Enter 换行）。
+1. 打开右侧 **ZCode** 工具窗口，直接输入问题（Enter 发送，Shift+Enter 换行）。**支持排队**：上一轮还在运行时继续发送的消息自动排队（聊天区有提示），当前轮结束后按顺序自动发出；气泡在消息真正发出时才出现，问答始终成对相邻。点「停止」会中断当前轮并清空排队。
 2. 发送时自动附带：当前活动文件路径、选中的代码（带行号，超过上限截断）、打开的文件列表（可在设置中关闭）。附带的上下文在消息气泡下方折叠展示（点击展开），不挤占正文。
 3. 编辑器中选中代码 → 右键 → **ZCode**：
    - **引用选中代码到对话...**：把选区挂为待发送上下文（输入框上方显示引用条，可移除），聚焦输入框，补充问题后随消息一起发出；
@@ -97,4 +99,4 @@ Settings → Tools → ZCode：node 路径、runtime 路径、默认权限模式
 
 - IDEA 诊断（错误/警告）作为上下文/工具暴露给 zcode
 - 终端 TUI 模式（集成终端跑 zcode，IDE 作为 MCP server 提供选区/诊断工具）
-- 更丰富的 markdown 渲染（代码高亮）、变更文件实时列表、消息排队
+- 更丰富的 markdown 渲染（代码高亮）、变更文件实时列表

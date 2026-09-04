@@ -9,6 +9,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.wm.ToolWindowManager
 import zcode.idea.context.SelectionContext
 import zcode.idea.core.ZcodeSessionService
+import zcode.idea.settings.ZcodeSettings
 import zcode.idea.ui.ChatPanelRegistry
 
 /** 编辑器右键动作基类：激活工具窗口并把模板指令发给 zcode。 */
@@ -24,7 +25,12 @@ abstract class ZcodeEditorAction(text: String, description: String) : AnAction(t
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE)
         activateToolWindow(project)
         val prompt = buildPrompt(editor?.selectionModel?.selectedText, file?.name)
-        project.getService(ZcodeSessionService::class.java).send(prompt)
+        // 这些指令明确面向"选中的代码"：显式携带选区，不受"自动附上下文"开关影响；
+        // 无选区时 explicitContext 为 null，回落自动采集（若开启）
+        val explicitContext = SelectionContext.captureSelection(project)?.let {
+            SelectionContext.buildSelectionBlock(it, ZcodeSettings.getInstance().state.maxSelectionChars)
+        }
+        project.getService(ZcodeSessionService::class.java).send(prompt, explicitContext)
     }
 
     override fun update(e: AnActionEvent) {
@@ -94,7 +100,11 @@ class CustomPromptAction : AnAction("自定义指令...", "输入自定义指令
         )?.trim() ?: return
         if (input.isEmpty()) return
         ToolWindowManager.getInstance(project).getToolWindow("ZCode")?.activate(null)
-        project.getService(ZcodeSessionService::class.java).send(input)
+        // 编辑器里有选区时显式带上（同上：不依赖自动上下文开关）
+        val explicitContext = SelectionContext.captureSelection(project)?.let {
+            SelectionContext.buildSelectionBlock(it, ZcodeSettings.getInstance().state.maxSelectionChars)
+        }
+        project.getService(ZcodeSessionService::class.java).send(input, explicitContext)
     }
 
     override fun update(e: AnActionEvent) {

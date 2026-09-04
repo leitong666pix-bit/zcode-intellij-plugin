@@ -11,6 +11,7 @@ import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -125,31 +126,36 @@ class AppServerClient private constructor(
                 listener?.onNotification(msg.get("method").asString, msg.getAsJsonObject("params"))
 
             hasId -> {
-                val id = msg.get("id").asInt
+                val id = runCatching { msg.get("id").asInt }.getOrNull() ?: return
                 val future = pending.remove(id) ?: return
-                val error = msg.getAsJsonObject("error")
+                val error = msg.get("error")?.takeIf { it.isJsonObject }?.asJsonObject
                 if (error != null) {
                     future.completeExceptionally(
                         RpcException(
-                            error.get("code")?.asInt ?: -32000,
-                            error.get("message")?.asString ?: "未知错误",
+                            runCatching { error.get("code")?.asInt }.getOrNull() ?: -32000,
+                            error.get("message")?.takeIf { it.isJsonPrimitive }?.asString ?: "未知错误",
                             error.get("data"),
                         )
                     )
                 } else {
-                    future.complete(msg.getAsJsonObject("result") ?: JsonObject())
+                    // result 非对象（或缺失）按空对象处理：解析异常会让 future 悬挂到调用方超时
+                    future.complete(msg.get("result")?.takeIf { it.isJsonObject }?.asJsonObject ?: JsonObject())
                 }
             }
         }
     }
 
-    fun request(method: String, params: JsonObject? = null): CompletableFuture<JsonObject> {
+    fun request(method: String, params: JsonObject? = null, timeoutMs: Long = 120_000): CompletableFuture<JsonObject> {
         if (closed.get()) {
             return CompletableFuture.failedFuture(IllegalStateException("app-server 已关闭"))
         }
         val id = nextId.incrementAndGet()
         val future = CompletableFuture<JsonObject>()
         pending[id] = future
+        // 客户端级兜底超时：调用方 .get(Ns) 提前放弃后，pending 条目与 future 不再无限期滞留；
+        // 迟到的响应在 dispatch 里 pending.remove 不到，自然丢弃
+        future.orTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+        future.whenComplete { _, _ -> pending.remove(id) }
         val envelope = JsonObject().apply {
             addProperty("id", id)
             addProperty("method", method)

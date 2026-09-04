@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 enum class ConnectionState { DISCONNECTED, STARTING, READY, RUNNING, DEAD }
 
@@ -33,7 +34,14 @@ class ToolCallInfo(val id: String) {
 }
 
 /** 会话内被 zcode 修改过的文件（保留首次修改前内容用于 diff） */
-class ChangedFile(val path: String, val oldContent: String?, val toolName: String, val createdAt: Long)
+class ChangedFile(
+    val path: String,
+    val oldContent: String?,
+    val toolName: String,
+    val createdAt: Long,
+    /** 历史回填：没有修改前快照。此时 oldContent=null 不代表新建文件，diff 时应提示而非按空文件对比。 */
+    val fromHistory: Boolean = false,
+)
 
 data class SessionSummary(
     val sessionId: String,
@@ -76,6 +84,31 @@ class ZcodeSessionService(val project: Project) : Disposable {
     private val log = Logger.getInstance(ZcodeSessionService::class.java)
     private val listeners = CopyOnWriteArrayList<Listener>()
     private val startLock = Any()
+
+    /**
+     * 发送占位：send 的 EDT 检查与后台置 RUNNING 之间有窗口期，不占位的话第二个发送
+     * 会被服务端 -32010 拒绝并自动 stop，把第一条正在跑的请求打断。
+     * 置位在 EDT 同步段，释放在离开 RUNNING 态时（见 [setState]）。
+     */
+    private val sendInFlight = AtomicBoolean(false)
+
+    /**
+     * 运行中收到的新消息排队区（FIFO）：当前轮结束后自动顺序发出。
+     * 气泡在消息真正发出时才回显，保证界面上问答严格成对相邻。
+     */
+    private val sendQueue = ConcurrentLinkedQueue<QueuedSend>()
+
+    /** 一条待发消息：[content] 为实际发送文本（含注入上下文/图片），[prompt]/[displayBlock] 用于回显。 */
+    private class QueuedSend(val prompt: String, val content: String, val displayBlock: String?)
+
+    /**
+     * 本客户端视角"一轮进行中"：从派发消息起置位，直到收到 `turn.completed` / `idle` 才清除。
+     * 排队与出队只看这个标志 + 发送占位，不信任服务端 state 推送的时序——
+     * 实测 `prompt_completed` 可能提前推送，曾把第二条消息放进正在流式的轮次，
+     * 导致回答文本被劈到两个气泡、第二条消息不被回答。
+     */
+    @Volatile
+    private var turnActive = false
 
     @Volatile
     private var client: AppServerClient? = null
@@ -170,10 +203,6 @@ class ZcodeSessionService(val project: Project) : Disposable {
      * （多模态模型实测可见图），所以图片以内嵌 Markdown 方式追加。
      */
     fun send(prompt: String, explicitContext: String? = null, images: List<ImageRef> = emptyList()) {
-        if (state == ConnectionState.RUNNING) {
-            notice("上一轮仍在运行，请等待完成或点击停止", error = true)
-            return
-        }
         if (images.isNotEmpty() && currentModel?.supportsImages != true) {
             notice("当前模型 ${currentModel?.display ?: ""} 不支持图像输入，请先在模型下拉中切换到多模态模型", error = true)
             return
@@ -191,8 +220,25 @@ class ZcodeSessionService(val project: Project) : Disposable {
             } else null
         // 回显气泡里把图片引用并进折叠上下文区，用户点开能看到发了什么
         val displayBlock = (imageMd + (contextBlock ?: "")).trim('\n').ifEmpty { null }
-        fire { it.onUserEcho(prompt, displayBlock) }
         val content = prompt + imageMd + (contextBlock ?: "")
+        val msg = QueuedSend(prompt, content, displayBlock)
+        // 占坑失败、或本端观察本轮仍在流式（turnActive）、或状态机在 RUNNING：一律入队。
+        // turnActive 是关键：即使服务端状态事件提前/乱序把占位释放了，消息也不会挤进正在输出的轮次
+        val acquired = sendInFlight.compareAndSet(false, true)
+        if (!acquired || turnActive || state == ConnectionState.RUNNING) {
+            if (acquired) sendInFlight.set(false)
+            sendQueue.add(msg)
+            log.info("消息入队（第 ${sendQueue.size} 条），待当前轮结束后发送")
+            notice("上一轮仍在运行，已排队（第 ${sendQueue.size} 条），完成后自动发送", error = false)
+            return
+        }
+        dispatchSend(msg)
+    }
+
+    /** 立即发出一条消息：回显气泡 + 后台执行整轮（含 -32010/-32031 恢复路径）。 */
+    private fun dispatchSend(msg: QueuedSend) {
+        log.info("派发消息: ${msg.prompt.lineSequence().firstOrNull()?.take(40)}")
+        fire { it.onUserEcho(msg.prompt, msg.displayBlock) }
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 ensureConnected()
@@ -203,8 +249,9 @@ class ZcodeSessionService(val project: Project) : Disposable {
                     return@executeOnPooledThread
                 }
                 setState(ConnectionState.RUNNING, null)
+                turnActive = true
                 try {
-                    sendWithSession(sid, content)
+                    sendWithSession(sid, msg.content)
                 } catch (e: Exception) {
                     when (rpcCodeOf(e)) {
                         // 服务端认为该会话上一轮还没结束（如恢复了中断的会话）：stop 后重试一次
@@ -214,7 +261,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
                                 client?.request("session/stop", JsonObject().apply { addProperty("sessionId", sid) })
                                     ?.get(10, TimeUnit.SECONDS)
                             }
-                            sendWithSession(sid, content)
+                            sendWithSession(sid, msg.content)
                         }
                         // 恢复的历史会话绑定的模型已不可用：fork 出一个继承全部历史的新会话继续
                         -32031 -> {
@@ -224,21 +271,48 @@ class ZcodeSessionService(val project: Project) : Disposable {
                             notice("原会话绑定的模型已不可用，已切换到继承历史记录的新会话", error = false)
                             sessionId = forked
                             subscribeSession(client!!, forked)
-                            sendWithSession(forked, content)
+                            sendWithSession(forked, msg.content)
                         }
                         else -> throw e
                     }
                 }
             } catch (e: Exception) {
                 log.warn("session/send 失败", e)
-                setState(if (client?.isAlive == true) ConnectionState.READY else ConnectionState.DEAD, e.message)
+                val alive = client?.isAlive == true
+                setState(if (alive) ConnectionState.READY else ConnectionState.DEAD, e.message)
                 notice(describeError(e), error = true)
+                // 本轮发送失败但连接还在：继续消化队列（断连时 setState 会清空队列）
+                if (alive) drainQueue()
             }
         }
     }
 
-    /** Markdown 图片引用用 file:/// + 正斜杠路径（实测两种写法 runtime 都能解析）。 */
-    private fun imageUriOf(path: String): String = "file:///" + path.replace('\\', '/')
+    /**
+     * 当前轮结束后调用：取出一条排队消息继续发。
+     * 一次只取一条，它自己的轮结束会再次触发 drain，逐条消化；
+     * CAS 保证并发触发（idle 事件 + 错误恢复路径同帧到达）时也只有一条真正发出。
+     */
+    private fun drainQueue() {
+        if (turnActive) return // 本端还没观察到本轮结束，绝不放行下一条
+        val next = sendQueue.peek() ?: return
+        if (!sendInFlight.compareAndSet(false, true)) return
+        sendQueue.poll()
+        dispatchSend(next)
+    }
+
+    /** 丢弃全部排队消息并告知（点停止 / 断连 / 进程退出时）。 */
+    private fun clearQueue() {
+        val dropped = sendQueue.size
+        sendQueue.clear()
+        if (dropped > 0) notice("已清空 $dropped 条排队消息", error = false)
+    }
+
+    /** Markdown 图片引用用 file:/// + 正斜杠路径（实测两种写法 runtime 都能解析）。
+     *  逐段 URL 编码：文件名里的空格/#/) 会截断 Markdown 链接解析，必须转义。 */
+    private fun imageUriOf(path: String): String =
+        "file:///" + path.replace('\\', '/').split('/').joinToString("/") { segment ->
+            java.net.URLEncoder.encode(segment, Charsets.UTF_8.name()).replace("+", "%20")
+        }
 
     private fun sendWithSession(sid: String, content: String) {
         val params = JsonObject().apply {
@@ -267,10 +341,19 @@ class ZcodeSessionService(val project: Project) : Disposable {
     }
 
     fun stopCurrentTurn() {
+        // 停止 = 放弃当前轮和所有排队消息
+        clearQueue()
+        turnActive = false
         val c = client ?: return
         val sid = sessionId ?: return
         c.request("session/stop", JsonObject().apply { addProperty("sessionId", sid) })
-            .exceptionally { null }
+            .whenComplete { _, _ ->
+                // 服务端 stop 完成后本地收尾（个别情况下不会再推结束事件）
+                if (state == ConnectionState.RUNNING) {
+                    setState(ConnectionState.READY, null)
+                    fire { it.onAssistantDone(null) }
+                }
+            }
     }
 
     /** 新建会话（不复用当前 sessionId）。 */
@@ -279,6 +362,8 @@ class ZcodeSessionService(val project: Project) : Disposable {
         sessionId = null
         toolCalls.clear()
         pendingSnapshots.clear()
+        sendQueue.clear() // 换新会话：静默丢弃排队消息（上下文已切换）
+        turnActive = false
         synchronized(changedFiles) { changedFiles.clear() }
         fire { it.onHistoryCleared() }
         if (client?.isAlive == true && old != null) {
@@ -292,6 +377,8 @@ class ZcodeSessionService(val project: Project) : Disposable {
 
     /** 恢复历史会话并回调转录（EDT）。session/read 只对进程内活跃的会话可用，必须先 session/resume 激活。 */
     fun resumeSession(id: String, onTranscript: (List<TranscriptEntry>) -> Unit, onError: (String) -> Unit) {
+        sendQueue.clear() // 切换会话：排队消息属于旧会话的对话流，静默丢弃
+        turnActive = false
         fire { it.onHistoryCleared() }
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
@@ -356,6 +443,8 @@ class ZcodeSessionService(val project: Project) : Disposable {
                     sessionId = null
                     toolCalls.clear()
                     pendingSnapshots.clear()
+                    sendQueue.clear()
+                    turnActive = false
                     synchronized(changedFiles) { changedFiles.clear() }
                     fire { it.onHistoryCleared() }
                 }
@@ -375,12 +464,12 @@ class ZcodeSessionService(val project: Project) : Disposable {
                     .redirectErrorStream(false)
                     .start()
                 proc.outputStream.close()
-                val out = proc.inputStream.bufferedReader().readText().trim()
-                val finished = proc.waitFor(10, TimeUnit.SECONDS)
-                if (!finished) {
+                // 先等退出再读流：readText 会阻塞到 EOF（进程退出），先读后等会让超时分支永远到不了
+                if (!proc.waitFor(10, TimeUnit.SECONDS)) {
                     proc.destroyForcibly()
                     error("删除超时")
                 }
+                val out = runCatching { proc.inputStream.bufferedReader().readText().trim() }.getOrDefault("")
                 val changes = out.toIntOrNull()
                 if (changes == null) {
                     val errOut = runCatching { proc.errorStream.bufferedReader().readText() }.getOrDefault("")
@@ -548,21 +637,60 @@ class ZcodeSessionService(val project: Project) : Disposable {
         } else null
     }
 
-    /** 用户在模型选择器里选定模型：持久化 + 切换当前会话。 */
+    /** 用户在模型选择器里选定模型：切换当前会话；RPC 成功后才更新状态与偏好，失败则回滚显示并提示。 */
     fun selectModel(option: ModelOption) {
-        settings.state.preferredModelProvider = option.providerId
-        settings.state.preferredModelId = option.modelId
-        currentModel = option
-        fire { it.onModelsChanged(availableModels, option, availableThoughtLevels, currentThoughtLevel) }
-        val c = client ?: return
-        val sid = sessionId ?: return
+        val previous = currentModel
+        val c = client
+        val sid = sessionId
+        if (c == null || sid == null) {
+            // 未连接：只记住偏好，连接/建会话时生效
+            settings.state.preferredModelProvider = option.providerId
+            settings.state.preferredModelId = option.modelId
+            currentModel = option
+            fire { it.onModelsChanged(availableModels, option, availableThoughtLevels, currentThoughtLevel) }
+            return
+        }
         c.request("session/setModel", JsonObject().apply {
             addProperty("sessionId", sid)
             add("model", JsonObject().apply {
                 addProperty("providerId", option.providerId)
                 addProperty("modelId", option.modelId)
             })
-        }).exceptionally { null }
+        }).whenComplete { _, err ->
+            if (err != null) {
+                log.warn("session/setModel 失败，回滚模型显示", err)
+                currentModel = previous
+                fire { it.onModelsChanged(availableModels, previous, availableThoughtLevels, currentThoughtLevel) }
+                notice("切换模型失败：${describeError(err)}", error = true)
+            } else {
+                settings.state.preferredModelProvider = option.providerId
+                settings.state.preferredModelId = option.modelId
+                currentModel = option
+                fire { it.onModelsChanged(availableModels, option, availableThoughtLevels, currentThoughtLevel) }
+                // 新模型可用的思考强度档位可能不同，重读一次
+                project.basePath?.let { bp -> refreshThoughtLevels(c, bp) }
+            }
+        }
+    }
+
+    /** 重读 workspace/readState 的思考强度档位并广播（模型切换后档位随模型变化）。 */
+    private fun refreshThoughtLevels(c: AppServerClient, basePath: String) {
+        runCatching {
+            val st = c.request("workspace/readState", workspaceParams(basePath)).get(30, TimeUnit.SECONDS)
+            val tl = st.getAsJsonObject("settings")?.getAsJsonObject("thoughtLevel")
+            availableThoughtLevels = (tl?.getAsJsonArray("available") ?: JsonArray()).mapNotNull { el ->
+                val o = el.asJsonObject
+                ThoughtLevelInfo(
+                    value = o.get("value")?.asString ?: return@mapNotNull null,
+                    label = o.get("label")?.takeIf { !it.isJsonNull }?.asString ?: "",
+                )
+            }
+            val serverLevel = tl?.get("current")?.takeIf { !it.isJsonNull }?.asString
+            currentThoughtLevel = currentThoughtLevel
+                ?.takeIf { cur -> availableThoughtLevels.any { it.value == cur } }
+                ?: serverLevel
+            fire { it.onModelsChanged(availableModels, currentModel, availableThoughtLevels, currentThoughtLevel) }
+        }.onFailure { log.info("刷新思考强度失败", it) }
     }
 
     private fun workspaceParams(basePath: String): JsonObject = JsonObject().apply {
@@ -737,8 +865,10 @@ class ZcodeSessionService(val project: Project) : Disposable {
     }
 
     private fun registerToolFromHistory(name: String, input: JsonObject?) {
+        // 只登记写工具：历史里的 Read 等只读工具也带 file_path，但并不曾修改文件
+        if (!isFileTool(name)) return
         val path = filePathOf(name, input) ?: return
-        registerChangedFile(path, name, oldContent = null)
+        registerChangedFile(path, name, oldContent = null, fromHistory = true)
     }
 
     // ------------------------------------------------------------------ 协议事件处理
@@ -779,7 +909,15 @@ class ZcodeSessionService(val project: Project) : Disposable {
         when (type) {
             "model.streaming" -> handleStreaming(payload)
             "tool.updated" -> handleToolUpdated(payload)
+            "turn.started" -> log.info("session/event: turn.started")
             "turn.completed" -> {
+                // 权威的"本轮结束"信号（自带 usage）：先收尾状态与助手面板，再挂 footer，最后消化队列。
+                // 只依赖 state.updated(idle/prompt_completed) 不可靠：实测个别 runtime 会在轮次中途
+                // 提前推送 prompt_completed，把发送占位提前释放，下一条消息就挤进正在流式的轮次
+                log.info("session/event: turn.completed")
+                turnActive = false
+                if (state == ConnectionState.RUNNING) setState(ConnectionState.READY, null)
+                fire { it.onAssistantDone(null) }
                 val usage = payload.getAsJsonObject("usage")
                 val tokens = usage?.get("totalTokens")?.asLong
                 val durationMs = payload.get("duration")?.asLong
@@ -792,6 +930,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
                 }
                 fire { it.onTurnCompleted(summary) }
                 pollContextUsage()
+                drainQueue()
             }
         }
     }
@@ -832,8 +971,10 @@ class ZcodeSessionService(val project: Project) : Disposable {
                 info.status = if (success) ToolStatus.DONE else ToolStatus.FAILED
                 info.summary = result?.get("content")?.takeIf { !it.isJsonNull }?.asString
                     ?.lineSequence()?.firstOrNull { it.isNotBlank() }?.take(200)
+                // 所有终态（成功/失败）都取走快照：失败的写操作不能把大块修改前内容一直留在内存
+                val snapshot = pendingSnapshots.remove(id)
                 if (success && info.filePath != null && isFileTool(info.name)) {
-                    registerChangedFile(info.filePath!!, info.name, pendingSnapshots.remove(id)?.second)
+                    registerChangedFile(info.filePath!!, info.name, snapshot?.second)
                     refreshVfsFile(info.filePath!!)
                 }
             }
@@ -845,37 +986,47 @@ class ZcodeSessionService(val project: Project) : Disposable {
         val patch = params.getAsJsonObject("patch") ?: return
         val status = patch.get("status")?.asString
         val reason = params.get("reason")?.asString
+        log.info("state.updated: status=$status reason=$reason")
         when (status) {
             "running" -> if (state == ConnectionState.READY || state == ConnectionState.STARTING) {
                 setState(ConnectionState.RUNNING, null)
             }
-            "idle" -> if (state == ConnectionState.RUNNING) {
-                setState(ConnectionState.READY, null)
-                fire { it.onAssistantDone(null) }
-                refreshVfsAsync()
+            "idle" -> {
+                if (state == ConnectionState.RUNNING) {
+                    turnActive = false
+                    setState(ConnectionState.READY, null)
+                    fire { it.onAssistantDone(null) }
+                    refreshVfsAsync()
+                }
+                // 兜底：状态已在 READY 时收到的 idle 也尝试消化队列（防 drain 被漏触发）
+                drainQueue()
             }
         }
-        if (reason == "prompt_completed" && state == ConnectionState.RUNNING) {
-            setState(ConnectionState.READY, null)
-            fire { it.onAssistantDone(null) }
-        }
+        // 注意：prompt_completed 不再作为轮次结束信号。探针实测它跟在 turn.completed 之后，
+        // 但用户环境的 runtime 会在轮次中途提前推送它——轮次结束一律以 turn.completed / idle 为准。
     }
 
     // ------------------------------------------------------------------ 权限审批
 
-    @Suppress("UNCHECKED_CAST")
+    /**
+     * 权限审批串行泵。全部状态只在 EDT 读写：reader 线程的 onRequest 只负责投递，
+     * 避免 reader 线程与"弹窗关闭后继续泵"并发 poll 导致双弹窗。
+     */
     private fun pumpPermissionQueue() {
+        ApplicationManager.getApplication().invokeLater { pumpOnEdt() }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun pumpOnEdt() {
         if (permissionDialogShowing) return
         val req = permissionQueue.poll() ?: return
         permissionDialogShowing = true
         val params = req[1] as JsonObject
         val responder = req[2] as (JsonObject?) -> Unit
-        ApplicationManager.getApplication().invokeLater {
-            val response = zcode.idea.ui.PermissionDialog(project, params).showAndGetResponse()
-            permissionDialogShowing = false
-            responder(response)
-            pumpPermissionQueue()
-        }
+        val response = zcode.idea.ui.PermissionDialog(project, params).showAndGetResponse()
+        permissionDialogShowing = false
+        responder(response)
+        pumpOnEdt()
     }
 
     // ------------------------------------------------------------------ 文件追踪与 VFS
@@ -895,16 +1046,20 @@ class ZcodeSessionService(val project: Project) : Disposable {
 
     private fun snapshotBeforeWrite(toolCallId: String, path: String) {
         val file = File(path)
-        val content = if (file.isFile && file.length() < 16 * 1024 * 1024) {
+        val content = if (file.isFile && file.length() < SINGLE_SNAPSHOT_LIMIT) {
             runCatching { file.readText() }.getOrNull()
         } else null
-        pendingSnapshots[toolCallId] = path to content
+        // 会话级总量上限：超预算后新快照降级为不缓存（diff 退化为无修改前内容），避免长会话内存膨胀。
+        // 按字符数近似估算（UTF-8 下实际字节数只多不少）
+        val used = pendingSnapshots.values.sumOf { it.second?.length ?: 0 }
+        val overBudget = used + (content?.length ?: 0) > TOTAL_SNAPSHOT_LIMIT
+        pendingSnapshots[toolCallId] = path to if (overBudget) null else content
     }
 
-    private fun registerChangedFile(path: String, toolName: String, oldContent: String?) {
+    private fun registerChangedFile(path: String, toolName: String, oldContent: String?, fromHistory: Boolean = false) {
         synchronized(changedFiles) {
             if (!changedFiles.containsKey(path)) {
-                changedFiles[path] = ChangedFile(path, oldContent, toolName, System.currentTimeMillis())
+                changedFiles[path] = ChangedFile(path, oldContent, toolName, System.currentTimeMillis(), fromHistory)
             }
         }
     }
@@ -931,7 +1086,17 @@ class ZcodeSessionService(val project: Project) : Disposable {
     // ------------------------------------------------------------------ 杂项
 
     private fun setState(s: ConnectionState, detail: String?) {
+        log.info("连接状态: $s${detail?.let { "（$it）" } ?: ""}")
         state = s
+        // 离开运行链路（完成/出错/重置）即释放发送占位；STARTING 是冷启动中间态，不释放
+        if (s == ConnectionState.READY || s == ConnectionState.DEAD || s == ConnectionState.DISCONNECTED) {
+            sendInFlight.set(false)
+            // 断连/进程退出后排队消息不再自动发送（避免反复触发重启重试），直接丢弃并告知
+            if (s != ConnectionState.READY) {
+                turnActive = false
+                clearQueue()
+            }
+        }
         fire { it.onStateChanged(s, detail) }
     }
 
@@ -954,5 +1119,13 @@ class ZcodeSessionService(val project: Project) : Disposable {
     override fun dispose() {
         client?.close()
         client = null
+    }
+
+    private companion object {
+        /** 单文件快照上限（按字符近似）。 */
+        const val SINGLE_SNAPSHOT_LIMIT = 16L * 1024 * 1024
+
+        /** 会话内快照总内存预算（按字符近似）：超出后新快照不再缓存。 */
+        const val TOTAL_SNAPSHOT_LIMIT = 64L * 1024 * 1024
     }
 }

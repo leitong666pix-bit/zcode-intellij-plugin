@@ -241,7 +241,8 @@ object Markdown {
                     while (i < lines.size && !lines[i].trimStart().startsWith("```")) {
                         buf.append(lines[i]).append('\n'); i++
                     }
-                    i++
+                    // 此刻停在闭栏行（或越过末尾），由循环尾统一 i++ 前进：
+                    // 旧实现这里多推进一次，闭栏后的第一行会被吞掉
                     sb.append("<pre>").append(escape(buf.toString().trimEnd('\n'))).append("</pre>")
                 }
                 t.isEmpty() -> { closeList(); sb.append("<br>") }
@@ -292,7 +293,14 @@ object Markdown {
             if (idx % 2 == 1) {
                 sb.append("<code>").append(part).append("</code>")
             } else {
-                var s = REGEX_LINK.replace(part) { m -> "<a href=\"${m.groupValues[2]}\">${m.groupValues[1]}</a>" }
+                var s = REGEX_LINK.replace(part) { m ->
+                    val url = m.groupValues[2]
+                    // 只放行可安全在浏览器打开的协议，其余（如 javascript:）降级为纯文本
+                    if (url.startsWith("http://", ignoreCase = true) ||
+                        url.startsWith("https://", ignoreCase = true) ||
+                        url.startsWith("file:///", ignoreCase = true)
+                    ) "<a href=\"$url\">${m.groupValues[1]}</a>" else "${m.groupValues[1]} ($url)"
+                }
                 s = REGEX_BOLD.replace(s) { m -> "<b>${m.groupValues[1]}</b>" }
                 s = REGEX_ITALIC.replace(s) { m -> "<i>${m.groupValues[1]}</i>" }
                 sb.append(s)

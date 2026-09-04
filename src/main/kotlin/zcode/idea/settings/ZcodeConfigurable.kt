@@ -71,9 +71,17 @@ class ZcodeConfigurable : BoundConfigurable("ZCode") {
         ApplicationManager.getApplication().executeOnPooledThread {
             val node = RuntimeResolver.findNode(settings)
             val runtime = RuntimeResolver.findRuntimeScript(settings)
-            val ok = node != null && runtime != null
+            val nodeVersion = node?.let { RuntimeResolver.nodeVersionOf(it.first) }
+            val nodeOk = nodeVersion != null && RuntimeResolver.versionAtLeast(nodeVersion, 22, 19)
+            val ok = node != null && nodeOk && runtime != null
             val msg = buildString {
-                appendLine(if (node != null) "✔ Node: ${node.first}（${node.second}）" else "✘ ${RuntimeResolver.nodeNotFoundMessage()}")
+                appendLine(
+                    when {
+                        node == null -> "✘ ${RuntimeResolver.nodeNotFoundMessage()}"
+                        !nodeOk -> "✘ Node $nodeVersion（需要 >= 22.19）: ${node.first}"
+                        else -> "✔ Node $nodeVersion: ${node.first}（${node.second}）"
+                    }
+                )
                 append(if (runtime != null) "✔ Runtime: ${runtime.first}（${runtime.second}）" else "✘ ${RuntimeResolver.runtimeNotFoundMessage()}")
             }
             ApplicationManager.getApplication().invokeLater {

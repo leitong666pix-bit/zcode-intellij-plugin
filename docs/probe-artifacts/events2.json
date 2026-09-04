@@ -521,7 +521,7 @@
    "eventId": "0a918258-0386-44ba-a9d8-c162f2f1fa3b",
    "payload": {
     "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
-    "delta": " - use the Write tool. The working directory is C:\\Users\\81972\\AppData\\Local",
+    "delta": " - use the Write tool. The working directory is C:\\Users\\<user>\\AppData\\Local",
     "done": false,
     "kind": "reasoning_delta"
    },
@@ -571,7 +571,7 @@
    "eventId": "aae14762-ffd6-4c93-a5e3-bf9ea08c6cad",
    "payload": {
     "assistantMessageId": "msg_mtcdibo8_0943e556-a498-41c8-9954-94f3323b19f1",
-    "delta": "{\"file_path\":\"C:\\\\Users\\\\81972\\\\AppData\\\\Local\\\\Temp\\\\zcode-probe-ws\\\\ok2.txt\",\"content\":\"ok2\"}",
+    "delta": "{\"file_path\":\"C:\\\\Users\\\\<user>\\\\AppData\\\\Local\\\\Temp\\\\zcode-probe-ws\\\\ok2.txt\",\"content\":\"ok2\"}",
     "done": false,
     "kind": "tool_input_delta",
     "toolCallId": "call_dfbf44abcf3e4d628ff11b8e"
@@ -608,7 +608,7 @@
     "delta": "",
     "done": false,
     "input": {
-     "file_path": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt",
+     "file_path": "C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt",
      "content": "ok2"
     },
     "kind": "tool_call",
@@ -849,7 +849,7 @@
     "toolCallId": "call_dfbf44abcf3e4d628ff11b8e",
     "result": {
      "success": true,
-     "content": "File created successfully at: C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt (file state is current in your context — no need to Read it back)",
+     "content": "File created successfully at: C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt (file state is current in your context — no need to Read it back)",
      "perf": {
       "totalMs": 20,
       "detail": {
@@ -1228,7 +1228,7 @@
       {
        "additions": 1,
        "deletions": 0,
-       "path": "C:\\Users\\81972\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt",
+       "path": "C:\\Users\\<user>\\AppData\\Local\\Temp\\zcode-probe-ws\\ok2.txt",
        "toolNames": [
         "Write"
        ],
