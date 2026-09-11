@@ -1,6 +1,6 @@
 # ZCode IDEA 插件 — 架构与实现技术文档
 
-> 版本：0.1.0 ｜ 对应代码：`D:\Projects\IDEA plugins\zcode-idea-plugin`
+> 版本：0.2.0 ｜ 对应代码：`D:\Projects\IDEA plugins\zcode-idea-plugin`
 > 配套文档：[PROTOCOL.md](PROTOCOL.md)（ZCode Protocol 逆向笔记）、[README.md](../README.md)（构建/使用）
 
 ---
@@ -9,11 +9,13 @@
 
 本插件把 **ZCode agent runtime**（ZCode 桌面端内置的官方 CLI，`zcode.cjs`）接入 IntelliJ IDEA，提供类似 Claude Code 官方 IDEA 插件的体验：
 
-- 在 IDE 侧边 ToolWindow 中与 zcode **多轮对话**（流式输出、思考过程、工具调用可视化）；
-- **选区/活动文件自动注入**对话上下文（对齐 Claude Code 的 "⧉ Selected N lines" 行为）；
+- 在 IDE 侧边 ToolWindow 中与 zcode **多轮对话**（流式输出、思考过程与工具调用收进同一时间线、GFM 表格与代码块 IDE 同款语法高亮）；
+- **选区/活动文件自动注入**对话上下文；右键"引用选中代码"以 `@文件:行` 记号**多处内嵌**在输入文字任意位置；
+- 正文里的**文件引用可定位单行或选中行范围**；回答完成后解析行内类名、方法名等符号，命中定义才显示链接，同名目标可选择（§7.3）；
+- **斜杠命令**（本地 + 服务端内置 + `.zcode/commands` 自定义命令展开）与**手动压缩上下文**（/compact，运行中自动排队）；
 - zcode 的工具调用（改文件、跑命令）在 IDE 内**弹窗审批**，默认安全模式；
 - zcode 写盘后 IDE **自动感知**（VFS 刷新）、被改文件**一键 diff**（IDE 原生 diff viewer）；
-- 会话持久化在 zcode 侧（`~/.zcode/cli/`），支持跨插件/CLI **恢复**。
+- 会话持久化在 zcode 侧（`~/.zcode/cli/`），支持跨插件/CLI **恢复**；运行中发送的消息自动排队、逐轮顺序发出。
 
 ### 1.1 与 Claude Code 官方插件的架构对比（为什么这么做）
 
@@ -30,7 +32,7 @@
 ### 1.2 职责边界（重要）
 
 - **代码理解/搜索/修改归 zcode**：它用自己的 ripgrep/ugrep + Read/Edit/Write 文件级工具 + 自带 LSP 插件（jdtls/tsserver/pyright），把项目当磁盘文件操作，**不经过 IDEA 的索引/PSI**。
-- **IDE 上下文与呈现归插件**：选区采集、审批 UI、VFS 同步、diff 展示。
+- **IDE 上下文与呈现归插件**：选区采集、审批 UI、VFS 同步、diff 展示，以及通过 IDEA 文件索引和语言插件的类/符号索引实现正文引用导航。导航查询服务于用户点击，不向 zcode 新增代码搜索工具。
 - MVP **不动 MCP、不改 zcode 的 LSP 插件配置**（后期增强见 §11）。
 
 ---
@@ -101,16 +103,22 @@ zcode-idea-plugin/
 │   ├── runtime/RuntimeResolver.kt           ★ 运行时探测（桌面端优先 → npm 回退）
 │   ├── core/AppServerClient.kt              ★ JSON-RPC 客户端（传输层）
 │   ├── core/ZcodeCliConfig.kt               ★ ~/.zcode 配置解析 → runtimeModel/模型能力
-│   ├── core/ZcodeSessionService.kt          ★ 会话服务（领域层/粘合层）
-│   ├── context/SelectionContext.kt          IDE 上下文采集 + 上下文块拆分
+│   ├── core/ZcodeSessionService.kt          ★ 会话服务（领域层/粘合层，含消息排队）
+│   ├── commands/SlashCommands.kt            ★ 斜杠命令：扫描/frontmatter 解析/占位符展开/路由（纯逻辑）
+│   ├── context/SelectionContext.kt          IDE 上下文采集 + 上下文块拆分 + @引用记号展开
 │   ├── vfs/DiffOpener.kt                    原生 diff 呈现
 │   ├── ui/ZcodeToolWindowFactory.kt         ToolWindow 入口 + ChatPanelRegistry
 │   ├── ui/ChatPanel.kt                      聊天面板（最大 UI 文件）
-│   ├── ui/MessageComponents.kt              三种消息组件
+│   ├── ui/MessageComponents.kt              消息组件（用户气泡/助手时间线/工具卡片）
+│   ├── ui/ChatUi.kt                         共享基础（Markdown 渲染/链接事件分流/IDE 代码着色器）
+│   ├── ui/FileRefs.kt                       文件引用解析与编解码 + SymbolRefs 候选提取/链接装饰
+│   ├── ui/ReferenceNavigator.kt             后台索引解析、候选选择、文件行范围/符号定义导航
 │   ├── ui/PermissionDialog.kt               审批对话框
 │   ├── actions/ZcodeEditorActions.kt        编辑器右键动作组（含引用选中代码）
 │   └ settings/ZcodeSettings.kt / ZcodeConfigurable.kt   设置
-└── src/test/kotlin/zcode/idea/core/AppServerClientTest.kt   传输层单测（管道假进程）
+└── src/test/kotlin/zcode/idea/…             纯逻辑单测（传输层管道假进程、Markdown/FileRefs/
+                                             SlashCommands/SelectionContext 渲染与展开、
+                                             ResponsiveToolbarLayout 几何），全部 headless 可跑
 ```
 
 依赖极简：**只依赖 `com.intellij.modules.platform`**（不依赖 Java/Ultimate 模块），JSON 用平台自带的 Gson（`com.google.gson` 为平台对外可用的第三方库），UI 全 Swing/JBUI，无任何额外第三方依赖。
@@ -126,7 +134,7 @@ zcode-idea-plugin/
                          instance="zcode.idea.settings.ZcodeConfigurable"/>
 <notificationGroup id="ZCode" displayType="BALLOON"/>
 <group id="Zcode.EditorActions" popup="true" text="ZCode">
-    <action id="Zcode.AttachSelection" .../>  引用选中代码到对话...（挂为待发上下文，不直接发送）
+    <action id="Zcode.AttachSelection" .../>  引用选中代码到对话...（在输入框光标处插入 @文件:行 引用记号，不直接发送）
     <action id="Zcode.ExplainSelection" .../>   解释选中的代码
     <action id="Zcode.ImproveSelection" .../>   优化选中的代码
     <action id="Zcode.WriteTests" .../>         为选中代码写测试
@@ -200,19 +208,25 @@ DISCONNECTED ──ensureConnected()──► STARTING ──创建/恢复会话
 ### 6.2 发送链路（一次提问的完整时序）
 
 ```
-[EDT] ChatPanel.doSend() ─► service.send(text, explicitContext?, images)
-        ① 上下文块：explicitContext（右键引用的选区，优先）或自动采集
-             ReadAction.compute { SelectionContext.capture(project) }   ← 必须在 EDT 读编辑器
-        ② 图片：每张追加内嵌 Markdown 引用 "\n\n![name](file:///C:/...png)"
-             （attachments 字段不适用，见 PROTOCOL.md「图片输入」；当前模型不支持图像则拦截提示）
-        ③ fire { onUserEcho(text, 图片引用+上下文块) }                  ← 同步回显（上下文在气泡下方折叠）
-[pooled] ④ ensureConnected()（存活但无会话则补建；冷启动则 spawn+回推目录+create+subscribe）
-        ⑤ state=RUNNING；session/send {sessionId, content = text + 图片md + contextBlock}
+[EDT] ChatPanel.doSend()
+        ├─ "/" 开头 → 斜杠路由（见 ADR #14）：本地命令插件内消化；自定义命令客户端展开；
+        │             服务端内置原样 → service.send（内部命中斜杠分支：不注入上下文/图片，逐字发送）
+        ├─ 文本含已登记的 @引用记号 → substituteRefs 展开成内联引用块
+        │     → service.sendWithRefs(display=原文, content=展开后文本, images)   ← 不再自动采集上下文
+        └─ 普通消息 → service.send(text, images)
+              ① 上下文块：自动采集 ReadAction.compute { SelectionContext.capture(project) }  ← 必须在 EDT
+              ② 图片：每张追加内嵌 Markdown 引用 "\n\n![name](file:///C:/...png)"
+                   （attachments 字段不适用，见 PROTOCOL.md「图片输入」；当前模型不支持图像则拦截提示）
+        三者最终都走 enqueueOrDispatch(QueuedSend(prompt=回显, content=实发, displayBlock)):
+        占坑(sendInFlight CAS)失败 / turnActive / RUNNING → 入队（气泡延迟回显），否则立即派发
+[派发] ③ fire { onUserEcho }（入队消息在真正派发时才回显——问答严格成对相邻）
+[session worker] ④ ensureConnected()（存活但无会话则补建；冷启动则 spawn+回推目录+create+subscribe）
+        ⑤ state=RUNNING、turnActive=true；session/send {sessionId, content}
               └─ 返回 {accepted:true} 即返回，后续走通知流（图片文件不能删——runtime 回合内才读取）
-[reader] ⑥ 逐事件到达（见 6.3）→ fire(onEdt) → ChatPanel 渲染
+[reader → session worker] ⑥ 校验连接、会话代次与 sessionId（见 6.3）→ fire(onEdt) → ChatPanel 渲染；turn.completed/idle 后 drainQueue 逐条消化排队
 ```
 
-`send()` 在 RUNNING 时直接拒绝并提示；发送异常时的重试链：`-32010`（上轮未结束）→ `session/stop` 后重发一次；`-32031`（模型不可用，理论上已被目录回推根治）→ `session/fork` 派生继承历史的新会话继续（兜底）。
+发送失败分两类处理：明确 RPC 拒绝会释放本轮占位并继续队列；超时或 -32010 先查询服务端快照，只有确认 idle 才继续发送，否则保持运行状态并允许停止，不自动重发或中断可能已被接受的消息。-32031 仍通过 fork 继承历史兜底。停止、断连或切换会话清空原队列；停止/切换会话会使旧等待与 UI 回调失效。
 
 ### 6.3 协议事件 → 语义回调对照表
 
@@ -223,9 +237,11 @@ DISCONNECTED ──ensureConnected()──► STARTING ──创建/恢复会话
 | `model.streaming` kind=`tool_call` | 记录 `ToolCallInfo(id,name,input)`；若是文件工具且能取到路径 → **立即快照磁盘旧内容**（见 6.5） | `onToolCall` |
 | `tool.updated` kind=`scheduled/started` | 状态置 PENDING/RUNNING | `onToolUpdate` |
 | `tool.updated` kind=`result` | success? → DONE/FAILED；**success 且文件工具 → 登记变更文件 + VFS 刷新该文件** | `onToolUpdate` |
-| `turn.completed` | 拼 "tokens: N · x.xs" | `onTurnCompleted` |
+| `turn.completed` | **轮次权威结束信号**：turnActive=false → READY；拼 "tokens: N · x.xs"；重取上下文占用快照；drainQueue | `onAssistantDone(null)` + `onTurnCompleted` |
 | `state.updated` patch.status=`running` | 状态机 → RUNNING | `onStateChanged` |
-| `state.updated` patch.status=`idle`（reason=prompt_completed） | 状态机 → READY；**异步刷新项目根 VFS**（兜底外部改动） | `onAssistantDone(null)` 终结当前消息 |
+| `state.updated` patch.status=`idle`（reason=prompt_completed） | 状态机 → READY；**异步刷新项目根 VFS**（兜底外部改动）；兜底 drainQueue。注意 `prompt_completed` 实测可能提前到（ADR #13），轮次结束只认 `turn.completed`/`idle` | `onAssistantDone(null)` 终结当前消息 |
+| `state.updated` reason=`compact_started` | /compact 压缩轮启动（走正常 turn 事件流） | `onNotice("正在压缩上下文…")` |
+| create/resume/subscribe 回复含 `slashCommands` | 解析内置命令列表（goal/compact/init/plan）供 "/" 补全与未知命令判定 | `onSlashCommands` |
 | `session.titleUpdated` | 忽略（预留） | — |
 | 服务器请求 `interaction/requestPermission` | 入审批队列（见 6.4） | — |
 | 服务器请求 `session/requestRuntimePreferences`、`interaction/requestOfficialMcpAuthHeaders` 等 | **回 -32601**（协议官方容错路径，runtime 用默认值继续，探针验证过） | — |
@@ -254,78 +270,71 @@ onRequest ─► permissionQueue.add ─► pumpPermissions()
 
 ### 6.5 文件变更追踪与 diff 数据
 
-目标：把"会话内被 zcode 改过的文件"做成可点开 diff 的列表。
+FileSnapshots 统一管理待执行工具和已完成修改的首次快照。reader 收到文件工具的 tool_call 时立即尝试采集，避免后台会话队列等待其他 RPC 时错过修改前内容；工具结果再由会话队列确认保留或释放。同一路径的多个工具共享首次快照，失败工具释放引用。
 
-```
-tool_call(Edit/Write/..., input.file_path)          ← 工具尚未执行
-   └─ snapshotBeforeWrite(toolCallId, path)：文件存在且 <16MB → 读旧内容入 pendingSnapshots
-tool.updated/result(success=true)
-   └─ registerChangedFile(path, toolName, oldContent)
-        changedFiles = LinkedHashMap<path, ChangedFile>   ← 同文件多轮修改只保留【最早】快照
-        diff 即「首次修改前」 vs 「当前磁盘」
-   └─ refreshVfsFile(path)：LocalFileSystem.refreshIoFiles(异步)
-turn 结束
-   └─ refreshVfsAsync()：项目根整体刷新兜底（防事件遗漏）
-```
+文本载荷按 UTF-16 每字符 2 字节计费：单份最多 16 MiB，整个会话最多 64 MiB，同时统计 pending 和已完成快照。读取过程有界；历史记录、文件过大、预算耗尽或读取失败都标记为不可用。每次切换会话创建独立存储，旧 reader 不能污染新会话。
 
-- 文件工具集合：`Edit / Write / MultiEdit / ApplyPatch / NotebookEdit`；路径键依次尝试 `file_path → path → notebook_path`（ApplyPatch 的字符串补丁输入暂不解析）。
-- `session/read` 恢复历史时也会扫 `tool` parts 回填变更文件表（无旧内容，diff 退化为空左侧）。
-- 呈现：`DiffOpener.show()` → `DiffContentFactory.create(oldContent字符串)` vs `create(project, virtualFile)` → `SimpleDiffRequest` → `DiffManager.showDiff`（原生 diff 窗口，标题含相对路径与工具名）。
+BeforeContent 明确区分 Captured、NewFile、Unavailable。只有确认原文件不存在时 diff 左侧才为空；Unavailable 显示原因。文件工具的相对路径按项目根解析。工具成功后异步刷新对应文件 VFS。
 
-### 6.6 其他 API
-
-- `stopCurrentTurn()`（session/stop）。
-- `newSession()`：清空追踪 + `session/close` 旧会话 + `sessionId=null`；**下一次 `ensureConnected()` 会在存活连接上补建新会话**（带偏好模型）。
-- `resumeSession(id)`：`activateSession`（`session/resume` **带 runtimeModel + thoughtLevel 偏好** → `subscribe` → 两步都成功后才设 `sessionId`）→ `session/read` 转录渲染。渲染规则与实时一致：同一轮的 reasoning/text 归入**同一个** AssistantMessagePanel（思考折叠、正文一份，只有一个 ZCode 头）；user 消息经 `SelectionContext.splitContext` 拆出注入的上下文块折叠展示。
-- `listSessions()`：session/list {workspace}，倒序含标题/模式/时间。
-- `selectModel(option)` / `selectThoughtLevel(value)`：持久化到设置 + `session/setModel`/`session/setThoughtLevel` 尽力同步当前会话 + `onModelsChanged` 刷新 UI（附图入口按 supportsImages 启停）。
-- `deleteSession(id)`：协议无删除 RPC —— `session/close`（尽力）→ 若删的是当前会话则本地重置 → spawn node 用内置 `node:sqlite` 执行 `DELETE FROM session WHERE id=?`（WAL 并发下 `PRAGMA busy_timeout=5000`，消息/部件外键级联清零，实测）。
-
----
 
 ## 7. 表现层（ui/）
 
 ### 7.1 ChatPanel（SimpleToolWindowPanel，vertical）
 
-- **结构**：toolbar（左：新会话/恢复…/变更文件(N)；右：状态标签 + 上下文占用标签 + 模型下拉(128px) + 思考强度下拉(84px, 中文映射 低/中/高/最高) + 模式下拉(104px)）+ 中央消息滚动区（`BoxLayout.PAGE_AXIS`，用户气泡靠右）+ 底部输入卡片（北侧：引用选区条 + 图片 chips 行；圆角描边卡片内嵌 JBTextArea 3 行 + 附图/停止/发送）。
+- **结构**：toolbar（左：新会话/恢复…/变更文件(N)/压缩；右：状态标签 + 上下文占用标签（可点击=压缩）+ 模型下拉(128px) + 思考强度下拉(84px, 中文映射 低/中/高/最高) + 模式下拉(104px)）+ 中央消息滚动区（`BoxLayout.PAGE_AXIS`，用户气泡靠右）+ 底部输入卡片（北侧：图片 chips 行；圆角描边卡片内嵌 JBTextArea 3 行 + 附图/停止/发送）。
 - **模式下拉文案**：逐字取自 ZCode 桌面端 i18n（app.asar 的 `mode.label.glm.*`/`mode.description.glm.*`）——build=变更前确认、edit=自动编辑、plan=计划模式、yolo=完全访问；tooltip = 官方中文名 + 官方一句说明。协议 id（build/edit/plan/yolo）只作内部存储与 `session/setMode` 参数，不直接显示。
 - **上下文占用标签**：`session/subscribe` 带 `includeSnapshot:true`，从回复 `snapshot.runtime.contextUsage.{used,size}` 驱动（如 `上下文 14k/1.0M`，tooltip 给精确值与百分比，≥80% 变红）。订阅时与每轮 `turn.completed` 后（重复 subscribe 取新快照，无事件回放副作用）各刷新一次；空会话/新会话无该字段则隐藏。
-- **工具栏自适应（ResponsiveToolbarLayout）**：子组件按加入顺序排成一条流，宽度不够时整条流换行、每行从左铺满（像文字折行，无死区）；单行放得下时前 3 个（按钮）贴左、其余（标签+下拉）贴右，即宽面板经典外观。**替代方案都有缺陷**：BorderLayout+EAST 窄面板下左组被压成 0 宽（按钮"消失"）；左右组各占一行的两行布局在中等宽度下上行右侧/下行左侧各留大片空隙。preferred 高度随当前宽度（折行数）变化，面板挂 componentResized→revalidate 兜底收敛高度差一拍的问题；几何行为有确定性单元测试（`ResponsiveToolbarLayoutTest`，显式 preferredSize，headless 可跑，含"每个非末行塞满"的反死区断言）。
+- **工具栏自适应（ResponsiveToolbarLayout）**：子组件按加入顺序排成一条流，宽度不够时整条流换行、每行从左铺满（像文字折行，无死区）；单行放得下时前 4 个（按钮）贴左、其余（标签+下拉）贴右，即宽面板经典外观。**替代方案都有缺陷**：BorderLayout+EAST 窄面板下左组被压成 0 宽（按钮"消失"）；左右组各占一行的两行布局在中等宽度下上行右侧/下行左侧各留大片空隙。preferred 高度随当前宽度（折行数）变化，面板挂 componentResized→revalidate 兜底收敛高度差一拍的问题；几何行为有确定性单元测试（`ResponsiveToolbarLayoutTest`，显式 preferredSize，headless 可跑，含"每个非末行塞满"的反死区断言）。
 - **空状态欢迎页**：未发消息时显示居中的官方图标 + 标题 + 说明；首条消息到达时整体移除（`chatStarted` 标志），新会话/恢复空列表时重新出现。
 - **监听器生命周期**：构造时 `service.addListener(this)`；`Content.setDisposer { panel.dispose() }` 保证工具窗口关闭时注销（同时从 `ChatPanelRegistry` 摘除）。
-- **流式渲染**：`onAssistantDelta` 惰性创建当前 `AssistantMessagePanel`（思考区可折叠，正文 Markdown 累积 + 120ms `javax.swing.Timer` 合并刷新，避免逐 token 重建 HTML）；每次追加后 `scrollToBottom()`。正文用 `WrappingHtmlPane` 按父容器实际宽度重排高度——JEditorPane 在纵向 BoxLayout 中首选高度不可靠，会因高度塌陷导致正文被裁剪甚至完全不可见。
+- **流式渲染**：`ensureAssistantPanel()` 惰性创建当前 `AssistantMessagePanel`（首个 delta 或首个工具调用触发）；思考文本与工具行**按到达顺序交错**追加进思考区时间线（**默认折叠**、标题实时报"思考中 · N 字 · N 个工具"进度，点击可展开，用户展开过则 `done()` 不强收）；正文 Markdown 累积 + 120ms `javax.swing.Timer` 合并刷新（避免逐 token 重建 HTML）；每次追加后 `scrollToBottom()`。正文用 `WrappingHtmlPane` 按父容器实际宽度重排高度——JEditorPane 在纵向 BoxLayout 中首选高度不可靠，会因高度塌陷导致正文被裁剪甚至完全不可见。
+- **贴底跟随（StickyBottomTracker）**：流式期间是否跟随滚动由滚动条事件驱动的状态机决定，而非按"当前离底距离"事后判断——用户滚轮/拖动离开底部即停跟随（之后内容再涨也停在原地），拉回底部自动恢复，用户发消息/恢复会话强制贴底。只在 value 变化时重判（内容增高只动 maximum 不动 value，不会误判成用户上翻）；拖动未松手期间一律暂停吸附，避免与程序贴底互相打架。**两次实测教训**：① 按"gap < 视口高度/3 才跟随"的事后判断，用户每次上滚都超不过阈值就被下一个 delta 拽回底部，等于永远逃不出吸附区；② 贴底操作是两跳 invokeLater 异步执行，只在**入队时**检查贴底态（TOCTOU）——密集流式期间已入队的贴底操作会压过用户的滚轮事件执行、把视图拽回底部并再次把状态刷回"贴底"，用户根本翻不上去，必须在**执行前复查**。另：流式只读文本区（`readOnlyArea`）把 caret 置 `NEVER_UPDATE`，防文档更新触发 `DefaultCaret.adjustVisibility → scrollRectToVisible` 绕过贴底守卫直接劫持视口。
+- **斜杠补全弹层**：输入 "/" 开头且无空白时在输入框上方弹非焦点列表（本地 + 服务端内置 + 自定义命令，后台线程限频扫描）；↑↓/Enter/Tab/Esc 由输入框 KeyAdapter 转发；IME 组合态与参数输入阶段自动关闭。
 - **附图**：Ctrl+V（剪贴板 imageFlavor → BufferedImage → `%TEMP%/zcode-idea-images/paste-*.png`）或「附图」按钮（FileChooser，png/jpg/jpeg/gif/webp/bmp）；chips = 32px 缩略图 + 文件名 + 移除；发送后清 chip 但**不删临时文件**（send 提前返回、runtime 回合内才读文件）。入口按当前模型 `supportsImages` 启停；`addImage` 时若不支持弹提示。
 - **恢复下拉**：自绘行列表（非 PopupChooserBuilder）——每行 `[时间] 标题 · 模式` + 🗑；整行点击恢复（监听同时挂 row/label/删除键，鼠标事件只派发最深层组件）；删除走确认对话框 → `deleteSession` → 原地重拉列表重绘。**悬停高亮必须用不透明纯色**（列表底色↔选中色）——半透明色在 opaque 切换时不清底，反复悬停会叠加残影/花字（初版实测翻车点）。
 - 状态标签带彩色圆点映射五态：未连接（灰）/启动 zcode…（灰）/就绪（绿）/运行中…（蓝）/DEAD 详情（红）。
 
 ### 7.2 消息组件（MessageComponents + ChatUi 共享基础）
 
-共享基础（`ChatUi.kt`）：`ChatColors`（亮/暗主题命名色）、`BubblePanel`（圆角底色卡片，可选描边）、`WrappingTextArea`（按父容器实际宽度重排版算高度——原生 JTextArea 在纵向 BoxLayout 里换行高度不可靠，这是初版"蓝条拉长"问题的根治点）、`WrappingHtmlPane`（同思路的 JBHtmlPane 子类，修复 HTML 正文在纵向 BoxLayout 中高度塌陷不可见的问题）、`CollapsibleSection`（标题行点击折叠/展开）、`Markdown`（轻量 MD→Swing HTML：代码块/行内代码/标题/列表/引用/粗斜体/链接）、`createChatHtmlPane`（样式表显式固定正文为正常前景色，与思考区灰字区分 + 可点击链接）。
+共享基础（`ChatUi.kt`）：`ChatColors`（亮/暗主题命名色）、`BubblePanel`（圆角底色卡片，可选描边）、`WrappingTextArea`（按父容器实际宽度重排版算高度——原生 JTextArea 在纵向 BoxLayout 里换行高度不可靠，这是初版"蓝条拉长"问题的根治点）、`WrappingHtmlPane`（同思路的 JBHtmlPane 子类，修复 HTML 正文在纵向 BoxLayout 中高度塌陷不可见的问题）、`CollapsibleSection`（标题行点击折叠/展开）、`StickyBottomTracker`（消息区贴底跟随状态机，见 §7.1）、`ideCodeHighlighter`（围栏代码块 IDE 词法器着色）、`Markdown`（轻量 MD→Swing HTML：围栏代码块（着色回调注入）/行内代码/标题/列表/任务列表/引用/粗斜体/删除线/GFM 表格/链接/分隔线）、`createChatHtmlPane`（样式表固定正文前景色 + GitHub 风格表格样式——无竖线边框、横向细线分隔、表头浅底加粗下划、偶数行斑马纹，`cellspacing=0` 保证横线连贯；链接监听分流：`zcodefile:` → IDE 内跳转，`zcodesymbol:` → IDE 符号定义选择，仅 HTTP(S) → 浏览器）。
 
 | 组件 | 视觉 | 行为 |
 |---|---|---|
-| `UserMessagePanel` | 浅蓝圆角气泡（`userBubble`）靠右对齐，宽度按内容自适应（上限约 70% 视口宽，按最宽一行测宽）；有上下文时气泡下方整行宽的折叠"IDE 上下文 · N 字"（默认收起，点击展开灰字小号正文） | 纯展示；`alignmentX=RIGHT` + 最大宽度=首选宽度，纵向 BoxLayout 才不会把气泡拉满整行；上下文折叠区复用 `CollapsibleSection`，与思考过程同交互 |
-| `AssistantMessagePanel` | 粗体 ZCode 头部 + 可折叠"思考过程"（灰字 + 左侧竖线引用样式；流式时展开、结束时仅思考区收起并显示字数）+ 正常前景色 Markdown 正文（代码块带底色）+ 灰色小字脚注 | `appendReasoning/appendText/done(summary)`；正文 flush 走 120ms 节流 |
-| `ToolCallPanel` | 圆角卡片：状态图标（动画/✔/✘/⊘）+ 粗体工具名 + 灰色目标摘要 | tooltip=入参 JSON；点击若有 filePath 则在编辑器打开 |
+| `UserMessagePanel` | 浅蓝圆角气泡（`userBubble`）靠右对齐，宽度按内容自适应（上限约 70% 视口宽，按最宽一行测宽）；有上下文时气泡下方整行宽的折叠"IDE 上下文 · N 字"（默认收起，点击展开灰字小号正文） | 纯展示；`alignmentX=RIGHT` + 最大宽度=首选宽度，纵向 BoxLayout 才不会把气泡拉满整行；上下文折叠区复用 `CollapsibleSection`；内嵌引用的消息回显保留紧凑 `@文件:行` 记号（展开后的引用块在实发内容里） |
+| `AssistantMessagePanel` | 粗体 ZCode 头部 + 可折叠思考区时间线（思考文本段灰字左竖线 + 工具行交错，标题"已深度思考 · N 字 · N 个工具"）+ Markdown 正文（表格/代码高亮）+ 灰色小字脚注；正文结论永远在思考区之后 | `appendReasoning/appendText/addToolCall/done(summary)`；正文 flush 走 120ms 节流；`onOpenFileRef`/`highlightCode` 构造注入 |
+| `ToolCallPanel` | 圆角卡片（排在思考区时间线里，缩进）：状态图标（动画/✔/✘/⊘）+ 粗体工具名 + 灰色目标摘要 | tooltip=入参 JSON；点击若有 filePath 则在编辑器打开 |
 
 所有消息组件都覆写 `getMaximumSize = (MAX, preferred.height)`——纵向 BoxLayout 会向最大高度无界的组件分发多余空间，这是初版消息被垂直拉伸成"长条"的直接原因。
+
+### 7.3 正文代码引用导航
+
+`FileRefs.kt` 中的 `FileRefs` 负责文件引用解析和 `zcodefile:` 链接编解码，`SymbolRefs` 负责行内符号候选提取和 `zcodesymbol:` 链接装饰；`ReferenceNavigator` 负责目标解析及 IDE 导航。`ChatPanel` 为实时回答和恢复的历史回答注入同一组回调。
+
+- **文件引用**：行内代码支持裸文件名、绝对/相对路径及可选行号，行范围支持 `Foo.java:336-347`、`Foo.java#L12-L20`；本地 Markdown 链接也转换为内部链接。纯文本中的裸文件名必须带行号，带目录的路径可不带行号。无效行号（零、溢出或倒序范围）不创建链接。
+- **目标查找**：依次检查绝对路径、项目根相对路径，再用 `FilenameIndex` 查询当前项目内的同名文件；有路径后缀匹配时优先采用。一个结果直接打开，多个结果展示路径列表，无结果给出提示。
+- **定位**：`OpenFileDescriptor` 打开文件并移动光标；显式行范围选中起始行开头至结束行末尾。引用行数超出当前文件时收缩到可用范围并提示文件行数已变化。
+- **符号引用**：回答完成后，仅从尚未链接的行内代码提取类名、驼峰标识符或带空括号的方法名，如 `HealthProperties`、`scheduleReminderPatientWhitelistFilter`、`execute()`、`Handler.execute()`。查询语言插件提供的类/符号贡献器，兼容 `ChooseByNameContributor` 与 `ChooseByNameContributorEx`，只保留当前项目中可导航的 PSI 定义。仅命中的候选变为链接，多定义时提供选择；点击时重新解析目标。
+- **呈现与生命周期**：链接使用主题对应颜色、下划线、手形光标和悬停提示；符号提示显示目标或候选数量。解析使用 `ReadAction.nonBlocking` 等待智能模式，结果回 EDT；项目或面板释放后停止回调，消息渲染版本检查防止旧结果覆盖新正文。索引期间及未命中的内容保持普通代码样式。
+
+这些链接只存在于插件生成的 HTML 中；服务端仍返回原始 Markdown 文本，见 [PROTOCOL.md](PROTOCOL.md#正文引用与客户端导航)。
 
 ---
 
 ## 8. 线程模型与并发规则（平台规范落地）
 
-| 线程 | 做什么 | 绝不做 |
-|---|---|---|
-| **EDT** | 所有 Swing 渲染、编辑器读取（ReadAction）、对话框、`invokeLater` 派发回调 | 进程 IO、磁盘读、网络 |
-| **reader 守护线程**（客户端自有） | 读 stdout、分拣、调 `Listener`（服务层随即 `invokeLater` 转 EDT） | 直接碰 Swing |
-| **pooled thread**（`executeOnPooledThread`） | spawn 进程、session/send、`session/read`、VFS refresh、RuntimeResolver 的 `where` 子进程 | 直接碰 Swing |
-| writer（调用方线程） | `writeLine`（`writerLock` 同步） | — |
+| 线程 | 职责 |
+|---|---|
+| EDT | 上下文采集、界面渲染和审批弹窗；UI 回调与历史分批渲染均校验会话代次 |
+| reader | JSON-RPC 分发、文件工具首次快照采集、审批入队；不得同步等待另一个 RPC |
+| zcode-session-worker | SessionTaskQueue 串行执行会话、模型、权限模式和消息状态变更 |
+| IDE pooled thread | VFS 刷新、界面辅助 IO，以及智能模式下的非阻塞引用索引查询；导航和 HTML 更新回到 EDT |
+| writer 调用线程 | 用 writerLock 保护请求与审批应答写入 |
 
-- **事件顺序保证**：所有对 UI 的 fire 都经 `Application.invokeLater`，EDT 队列 FIFO → 协议事件顺序即渲染顺序。
-- **并发容器**：`pending`（CMA HashMap）、`toolCalls`（CHM）、`changedFiles`（synchronized LinkedHashMap）、`permissionQueue`（ConcurrentLinkedQueue）+ `@Volatile` 状态位。
-- 审批 `responder` 在 EDT 回写 writer（锁保护，跨线程安全）。
+- 会话切换和停止立即推进代次；旧任务在下一次等待检查（最长约 100 ms）时退出，后续 RPC 和迟到的 UI 回调被丢弃。项目释放关闭队列和进程。
+- 通知按连接实例和 sessionId 过滤；审批额外绑定代次，过期请求自动拒绝，旧弹窗不允许批准新会话的操作。
+- 模型和思考强度切换在 worker 上等待，不阻塞 reader。权限模式收到确认后才更新显示，等待期间暂停新消息；结果不明时查询快照，无法确认则继续暂停。
+- 恢复会话从服务端快照同步实际权限模式和运行状态。
 
----
 
 ## 9. 构建体系
 
@@ -375,6 +384,16 @@ intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "242"; until
 - `FakeProcess.destroy()` 必须**关管道写端**（`PipedInputStream` 只有 `closedByWriter` 才会让阻塞的 read 返回 EOF，关读端叫不醒它）；
 - `awaitReaderThreadsGone()` 等后台线程退出，避免平台 ThreadLeakTracker 误报。
 
+
+引用导航的自动化覆盖：`FileRefsTest` 验证文件行范围、#L 锚点、无效位置、Unicode/空格/转义路径、本地 Markdown 链接、已存在链接保护，以及符号候选和多定义提示；`ReferenceTargetsTest` 验证同名文件/路径后缀选择与越界行范围裁剪。本次 `test buildPlugin --offline` 通过 108 项测试并生成安装包；尚未在真实 IDEA 中完成导航点击验收。
+
+安装包的人工验收项目：
+
+1. 单行和 `Foo.java:336-347` 引用分别定位到行、选中完整范围；过期行号出现范围调整提示。
+2. 两个模块中的同名文件弹出路径列表，带模块路径的引用优先定位对应文件。
+3. 类名和 `execute()` 等符号在索引完成后出现链接，多定义可选择；未解析的符号及配置值保持普通代码。
+4. 流式输出、历史恢复、索引构建及关闭面板期间没有旧异步结果覆盖新正文；亮/暗主题均能分辨链接并显示悬停提示。
+
 ---
 
 ## 10. 关键设计决策记录（ADR 摘要）
@@ -392,14 +411,20 @@ intellijPlatform { pluginConfiguration { ideaVersion { sinceBuild = "242"; until
 11. **runtime 探测桌面端优先**：官方桌面端与 npm 包同源可互换（探针全链路验证），优先桌面端可摆脱第三方依赖；npm 作回退兼顾未装桌面端的机器。
 12. **悬停高亮用不透明纯色**：半透明色 + opaque 切换在 Swing 下不清底，反复悬停叠加残影（会话列表初版翻车点）。
 13. **消息排队 + `turn.completed` 为轮次结束的权威信号**：运行中发送的消息入队（气泡延迟到真正发出时回显，问答相邻成对）；派发/出队由本端 `turnActive` 门控——从派发置位到收到 `turn.completed`/`idle` 才清除——不信任 `state.updated` 的时序（实测用户环境的 runtime 会在轮次中途提前推送 `prompt_completed`，曾把第二条消息放进正在流式的轮次：回答文本被劈到两个气泡、第二条消息不被回答）。停止/断连/切换会话清空队列。
+14. **斜杠命令三分路由 + 压缩走 `/compact` 文本**：① 插件本地命令（/new /clear /help）客户端消化；② 自定义命令客户端展开（服务端不展开，bundle 实证只有 CLI 内有 `expandCliCustomCommandPrompt`）——扫描 `.zcode/commands` 等根目录、`$ARGUMENTS`/`$1..$9` 占位符替换后作为普通消息发送，回显仍显示 `/name args`；③ 服务端内置（快照 `slashCommands` + `/fork`）原样发送——`submitPrompt` 只拦截 `/compact`/`/fork`，**逐字匹配**，所以命令消息一律不注入 IDE 上下文/图片。手动压缩按钮 = 发送 `/compact` 文本而非 `session/compact` RPC：后者轮次运行中会抛错且无排队能力，前者免费获得排队语义（当前轮结束自动压缩）且压缩走正常 turn 事件流（总结流式可见、`turn.completed` 后 `pollContextUsage` 自动刷新占用），与 CLI 行为一致。未知命令拒发提示（对齐 CLI TUI），避免字面发给模型。
+15. **思考区时间线收纳工具行 + `zcodefile:` 引用链接**：一轮回答重构为 [折叠思考区 → 正文 → footer]，正文结论永远在最后（此前十几条 Read/Bash 平铺在回答之后，恢复历史时甚至是纯文本灰字）。思考区内容是**垂直时间线**：思考文本段与工具行按真实到达顺序交错（工具行插入后，后续思考另起一段），思考区默认折叠、标题实时报"思考中 · N 字 · N 个工具"进度（最初实现在流式期间自动展开，实测会挤掉正文首屏，改为默认折叠、点击可展开；用户展开过则收尾不强收）；历史渲染与实时同构（`TranscriptEntry.toolTarget` 携带工具目标，渲染为"✓ Read · path"进思考区）。正文引用导航统一由 `FileRefs` / `SymbolRefs` 和 `ReferenceNavigator` 处理，支持文件单行/行范围、同名候选选择，以及索引命中的符号定义跳转（§7.3）。
+16. **"引用选中代码"用输入框内嵌记号 + 发送时展开**：旧实现是输入框上方的单份待发送上下文条（新引用覆盖旧引用、只能拼在消息末尾）。新实现把 `@项目相对路径:起-止行` 记号插到输入文本光标处（记号→选区信息的 map 登记在面板上），可多处引用、可放在文字任意位置——JBTextArea 无法像 zcode 富文本输入框那样内嵌 chip，可编辑的文本记号是等价物。发送时 `substituteRefs` 按记号长度降序把已登记记号替换成内联引用块（长记号先替换防前缀互含）；回显气泡保留紧凑记号。内联引用块**不带 CONTEXT_MARKER**（它长在正文中间，带标记会破坏 splitContext 的"首个标记即上下文块"约定，历史恢复也不会误折叠）。带显式引用的消息跳过自动上下文注入（与旧 explicitContext 行为一致）；用户手改记号导致查表未命中时按字面发送（记号本身仍含文件名+行号，模型可自行读文件）。
+17. **Markdown 渲染继续自研扩展（表格 + IDE 词法器着色），不引入 commonmark-java**：模型输出的表格/代码都是 Markdown 源码，CLI 里的"表格样子/五颜六色"是客户端渲染（zcode.cjs 打包完整 marked 解析器实证）——插件补客户端渲染即对齐业界做法。表格 = toHtml 新增 GFM 分支（含 `\|` 转义与冒号对齐），样式为 GitHub 风格——无竖线边框、仅 border-bottom 横线分隔 + 表头浅底下划 + 偶数行斑马纹（HTMLEditorKit 无 border-collapse，四边框会 1px 重叠显厚重；`border-bottom` 单侧边框与 `td.alt` class 选择器两个非显而易见的能力由 `TableRenderCapabilityTest` 像素级守护，防止平台行为变化导致样式静默退化；暗色主题的线/底色必须与面板底色拉开亮度档位——初版暗值与 #1E1F22~#2B2D30 的面板底几乎同色，"深上加深"整表看不清，实测翻车点）；代码着色 = **借 IntelliJ 自己的词法器**（语言名→Language→SyntaxHighlighter 的 Lexer 切 token→全局配色方案取前景色→相邻同色合并包 span），零第三方依赖、与编辑器同款配色并自动跟随主题，`Markdown.toHtml` 通过可选 highlight 回调注入实现，保持 headless 纯逻辑可测；不认识的语言、>20KB、Lexer 异常一律降级纯文本。不换 commonmark-java 的原因：新依赖收益边际小（Swing HTMLEditorKit 对复杂 HTML 支持有限），且要重接 zcodefile: 链接与转义约定。
 
 ---
 
 ## 11. 已知限制与路线图
 
 **当前限制**
-- Markdown 渲染为轻量自研（代码块无语法高亮）；工具参数 tooltip 为原始 JSON。
+- 符号导航依赖已安装语言插件的索引，只覆盖当前项目内可导航的定义；不是对任意代码片段进行语义解析。带参数的方法表达式、完整包限定名、未被贡献器收录的局部变量等可能保持普通文本；索引构建期间延后解析。文件链接按格式生成，目标是否存在在点击时检查。
+- Markdown 渲染为轻量自研：已覆盖围栏代码块（IDE 词法器着色，跟随主题，>20KB 跳过）、行内代码、GFM 表格、任务列表、删除线等；嵌套列表仅平铺、工具参数 tooltip 为原始 JSON。
 - 运行中发送的消息自动排队、逐轮顺序发出（气泡在真正发出时才回显，保证问答相邻；停止/断连/切换会话时清空队列）；每项目一个会话进程。
+- 斜杠命令：自定义命令 frontmatter 的 `model`/`allowed-tools`/`skills` 键本版忽略（只消费 description/argument-hint/disable-noninteractive）；补全弹层只在命令名阶段（"/" 开头且无空白）出现，参数阶段不提示 inputHint。
 - ApplyPatch 输入不解析路径（不进变更文件表）；恢复历史回填的变更只登记写工具，且无修改前快照时会提示"无法 diff"（不再误显示为从空文件创建）。
 - 图片临时文件（`%TEMP%/zcode-idea-images/`）发送后不清理（runtime 异步读取），依赖系统清理临时目录。
 - 设置为应用级（跨项目共享运行时路径）；无国际化文件（硬编码中文）。

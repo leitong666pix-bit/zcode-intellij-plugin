@@ -2,22 +2,29 @@ package zcode.idea.ui
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.search.FilenameIndex
+import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import zcode.idea.commands.SlashCommands
 import zcode.idea.core.AssistantDeltaKind
 import zcode.idea.core.ConnectionState
 import zcode.idea.core.ModelOption
@@ -40,6 +47,7 @@ import java.awt.Graphics2D
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Rectangle
+import java.awt.Point
 import java.awt.RenderingHints
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
@@ -51,10 +59,12 @@ import java.util.Date
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
+import javax.swing.DefaultListCellRenderer
 import javax.swing.Icon
 import javax.swing.JButton
 import javax.swing.JComboBox
 import javax.swing.JComponent
+import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.event.DocumentEvent
@@ -62,6 +72,9 @@ import javax.swing.event.DocumentEvent
 class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true), ZcodeSessionService.Listener {
 
     private val service = project.getService(ZcodeSessionService::class.java)
+
+    /** Markdown 代码块着色回调（IDE 词法器实现，见 [ideCodeHighlighter]）。 */
+    private val codeHighlighter = ideCodeHighlighter(project)
 
     /** 首选宽度报告为极小值：视口对窄视图按视口宽度拉伸，消息区永不出现横向滚动。 */
     private val messagesPanel = object : JPanel() {
@@ -86,23 +99,33 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         border = JBUI.Borders.empty()
         horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
     }
+
+    /** 流式贴底跟踪：用户上翻阅读历史时不被新内容拽回底部（见 [scrollToBottom]）。 */
+    private val stickyBottom = StickyBottomTracker(JBUI.scale(8)).also { it.attach(scroll.verticalScrollBar) }
     private val statusLabel = JBLabel("● 未连接").apply {
         foreground = ChatColors.dim
         font = JBFont.label().biggerOn(-1f)
     }
 
-    /** 上下文占用（来自订阅快照的 runtime.contextUsage，每轮结束刷新）；无数据时隐藏。 */
+    /** 上下文占用（来自订阅快照的 runtime.contextUsage，每轮结束刷新）；无数据时隐藏。点击可手动压缩。 */
     private val contextLabel = JBLabel().apply {
         foreground = ChatColors.dim
         font = JBFont.label().biggerOn(-1f)
         isVisible = false
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        toolTipText = "点击压缩上下文（/compact）：总结当前对话，释放上下文空间"
+        addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                doCompact()
+            }
+        })
     }
     private val inputArea = JBTextArea(3, 40).apply {
         lineWrap = true
         wrapStyleWord = true
         isOpaque = false
         border = JBUI.Borders.empty()
-        runCatching { emptyText.setText("询问 ZCode…（Enter 发送，Shift+Enter 换行）") }
+        runCatching { emptyText.setText("询问 ZCode…（Enter 发送，/ 命令，Shift+Enter 换行）") }
     }
     private val sendButton = JButton("发送")
     private val stopButton = JButton("停止").apply { isEnabled = false }
@@ -121,6 +144,9 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
     }
 
     /** 程序化刷新下拉选项时置位，避免触发选择回调。 */
+    private var updatingModeCombo = false
+    @Volatile private var disposed = false
+    private val referenceNavigator by lazy { ReferenceNavigator(project, this, { disposed }, ::showNoticePopup) }
     private var updatingModelCombo = false
     private var updatingThoughtCombo = false
     private val newSessionButton = flatButton("新会话", AllIcons.General.Add, "结束当前会话并开始新会话") { service.newSession() }
@@ -128,6 +154,11 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
     private val changedFilesButton = flatButton("变更文件 (0)", AllIcons.Actions.ListChanges, "查看本次会话修改过的文件") {
         showChangedFilesPopup()
     }
+
+    /** 手动压缩上下文：以 /compact 命令消息发送，运行中自动排队；会话有上下文数据后才可用。 */
+    private val compactButton = flatButton("压缩", AllIcons.Actions.Collapseall, "压缩上下文（/compact）：总结当前对话释放空间；当前有轮次运行时会自动排队") {
+        doCompact()
+    }.apply { isEnabled = false }
 
     private var currentAssistant: AssistantMessagePanel? = null
     private val toolPanels = HashMap<String, ToolCallPanel>()
@@ -138,10 +169,21 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
     /** 输入法组合态（拼音候选未提交）：期间 Enter 只提交候选词，不发送消息。 */
     private var imeComposing = false
 
-    /** 右键"引用选中代码"附带的上下文（发送时作为显式上下文，优先于自动采集）。 */
-    private var pendingAttach: zcode.idea.context.SelectionContext.Info? = null
-    private var attachLabel: JBLabel? = null
-    private var attachRow: JPanel? = null
+    /** 服务端暴露的内置斜杠命令（goal/compact/init/plan），连接后经 onSlashCommands 更新。 */
+    private var builtinSlash: List<SlashCommands.CommandDef> = emptyList()
+
+    /** 本地扫描到的自定义命令（.zcode/commands 等），后台线程刷新。 */
+    private var customSlash: List<SlashCommands.CommandDef> = emptyList()
+
+    /** 自定义命令最近一次扫描时间：弹层触发时最多 5 秒重扫一次。 */
+    private var customScanAt = 0L
+
+    /** "/" 补全弹层：非焦点，挂在输入框上方，键盘事件由输入框的 KeyAdapter 转发。 */
+    private var slashPopup: JBPopup? = null
+    private var slashList: JBList<SlashCommands.CommandDef>? = null
+
+    /** 输入框里的引用记号 → 选区信息：右键"引用选中代码"插入 `@文件:行` 记号，发送时展开成引用块。 */
+    private val pendingRefs = LinkedHashMap<String, zcode.idea.context.SelectionContext.Info>()
 
     /** 待发送的图片 chip（发送时以 Markdown 内嵌进消息文本）。 */
     private val pendingImages = mutableListOf<zcode.idea.core.ImageRef>()
@@ -172,6 +214,7 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
 
     init {
         service.addListener(this)
+        builtinSlash = service.slashCommands
         modeCombo.selectedIndex = ZcodeSettings.Mode.entries.indexOf(
             ZcodeSettings.Mode.fromId(service.currentMode())
         ).coerceAtLeast(0)
@@ -186,10 +229,12 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         sendButton.addActionListener { doSend() }
         stopButton.addActionListener { service.stopCurrentTurn() }
         modeCombo.addActionListener {
+            if (updatingModeCombo) return@addActionListener
             val idx = modeCombo.selectedIndex
             ZcodeSettings.Mode.entries.getOrNull(idx)?.let {
-                service.setMode(it.id)
-                modeCombo.toolTipText = modeTooltip(it)
+                val requested = it.id
+                onModeChanged(service.currentMode(), true)
+                service.setMode(requested)
             }
         }
         modelCombo.addActionListener {
@@ -205,10 +250,38 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
             override fun textChanged(e: DocumentEvent) {
                 // 运行中也可发送：消息自动排队，当前轮结束后顺序发出
                 sendButton.isEnabled = inputArea.text.isNotBlank()
+                updateSlashPopup()
             }
         })
         inputArea.addKeyListener(object : java.awt.event.KeyAdapter() {
             override fun keyPressed(e: java.awt.event.KeyEvent) {
+                // "/" 补全弹层开着：方向键选条目，Enter/Tab 补全，Esc 关闭（优先于发送与默认编辑行为）
+                val list = slashList
+                if (list != null && slashPopup?.isVisible == true) {
+                    when (e.keyCode) {
+                        java.awt.event.KeyEvent.VK_UP, java.awt.event.KeyEvent.VK_DOWN -> {
+                            e.consume()
+                            val size = list.model.size
+                            if (size > 0) {
+                                val delta = if (e.keyCode == java.awt.event.KeyEvent.VK_DOWN) 1 else -1
+                                list.selectedIndex = ((list.selectedIndex + delta) % size + size) % size
+                                list.ensureIndexIsVisible(list.selectedIndex)
+                            }
+                            return
+                        }
+                        java.awt.event.KeyEvent.VK_ENTER, java.awt.event.KeyEvent.VK_TAB ->
+                            if (!imeComposing) {
+                                e.consume()
+                                list.selectedValue?.let { completeSlash(it) }
+                                return
+                            }
+                        java.awt.event.KeyEvent.VK_ESCAPE -> {
+                            e.consume()
+                            hideSlashPopup()
+                            return
+                        }
+                    }
+                }
                 // IME 组合未提交时 Enter 只交给输入法（提交候选词），不触发发送
                 if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER && e.modifiersEx == 0 && !imeComposing) {
                     e.consume()
@@ -239,16 +312,17 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
 
     // ---------------------------------------------------------------- UI 组装
 
-    private fun buildToolbar(): JPanel = JPanel(ResponsiveToolbarLayout(leftCount = 3)).apply {
+    private fun buildToolbar(): JPanel = JPanel(ResponsiveToolbarLayout(leftCount = 4)).apply {
         isOpaque = false
         border = JBUI.Borders.compound(
             JBUI.Borders.empty(4, 10, 5, 10),
             BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
         )
-        // 前 3 个 = 按钮组，后 5 个 = 标签+下拉；宽度放不下整条时按此顺序流式换行、每行铺满
+        // 前 4 个 = 按钮组，后 5 个 = 标签+下拉；宽度放不下整条时按此顺序流式换行、每行铺满
         add(newSessionButton)
         add(resumeButton)
         add(changedFilesButton)
+        add(compactButton)
         add(statusLabel)
         add(contextLabel)
         add(modelCombo)
@@ -278,7 +352,6 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
                 layout = BoxLayout(this, BoxLayout.PAGE_AXIS)
                 isOpaque = false
             }
-            north.add(buildAttachRow().also { attachRow = it })
             north.add(buildImagesRow().also { imagesRow = it })
             add(north, BorderLayout.NORTH)
             add(inputScroll(), BorderLayout.CENTER)
@@ -390,21 +463,6 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         }
     }
 
-    /** 显式引用的选区上下文条：显示在输入框上方，可一键移除；tooltip 预览内容。 */
-    private fun buildAttachRow(): JPanel = JPanel(BorderLayout(8, 0)).apply {
-        isOpaque = false
-        isVisible = false
-        border = JBUI.Borders.empty(0, 2, 4, 2)
-        add(JBLabel().apply {
-            icon = AllIcons.FileTypes.Any_type
-            font = JBFont.label().biggerOn(-1f)
-        }.also { attachLabel = it }, BorderLayout.CENTER)
-        add(flatButton("", AllIcons.Actions.Close, "移除引用的选区") {
-            pendingAttach = null
-            attachRow?.apply { isVisible = false; revalidate(); repaint() }
-        }.apply { preferredSize = Dimension(26, 24) }, BorderLayout.EAST)
-    }
-
     private fun addWelcome() {
         chatStarted = false
         messagesPanel.add(Box.createVerticalGlue())
@@ -445,17 +503,176 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         val text = inputArea.text.trim()
         if (text.isEmpty()) return
         inputArea.text = ""
-        val attach = pendingAttach
-        pendingAttach = null
-        attachRow?.isVisible = false
         val images = pendingImages.toList()
         clearImages()
-        val explicitContext = attach?.let {
-            zcode.idea.context.SelectionContext.buildSelectionBlock(
-                it, ZcodeSettings.getInstance().state.maxSelectionChars,
-            )
+        // 斜杠命令不携带引用/图片（服务端拦截 /compact 要求文本精确匹配）
+        if (text.startsWith("/")) {
+            hideSlashPopup()
+            pendingRefs.clear()
+            handleSlashInput(text)
+            return
         }
-        service.send(text, explicitContext, images)
+        // 输入文本里的 @文件:行 引用记号展开成完整引用块；没有记号则走普通发送（自动上下文）
+        val expanded = zcode.idea.context.SelectionContext.substituteRefs(
+            text, pendingRefs, ZcodeSettings.getInstance().state.maxSelectionChars,
+        )
+        pendingRefs.clear()
+        if (expanded != null) {
+            service.sendWithRefs(text, expanded, images)
+        } else {
+            service.send(text, null, images)
+        }
+    }
+
+    /**
+     * 斜杠命令路由：本地命令（/new /clear /help）插件内消化；自定义命令客户端展开后发送；
+     * 服务端内置（/compact /fork 会被服务端拦截，其余作为普通 prompt）原样发送；未知命令拒发。
+     */
+    private fun handleSlashInput(text: String) {
+        when (val route = SlashCommands.classify(text, customSlash, builtinSlash.map { it.name })) {
+            SlashCommands.Route.NotCommand -> service.send(text)
+            is SlashCommands.Route.Local -> when (route.name) {
+                "help" -> {
+                    appendMessage(dimLabel("↑↓ 选择命令，Enter/Tab 补全，Esc 关闭。自定义命令放在项目或用户目录的 .zcode/commands/*.md").apply {
+                        border = JBUI.Borders.empty(2, 10)
+                    })
+                    inputArea.text = "/"
+                    inputArea.caretPosition = 1
+                    updateSlashPopup()
+                }
+                else -> service.newSession() // /new、/clear
+            }
+            is SlashCommands.Route.Custom ->
+                service.sendCommand(text, SlashCommands.buildCommandPrompt(route.def, route.rawArgs))
+            is SlashCommands.Route.Server -> service.send(text)
+            is SlashCommands.Route.Unknown ->
+                appendMessage(dimLabel("⚠ 未知命令 /${route.name}，输入 / 查看可用命令").apply {
+                    foreground = JBColor.RED
+                    border = JBUI.Borders.empty(2, 10)
+                })
+        }
+    }
+
+    // ---------------------------------------------------------------- 斜杠命令补全
+
+    /** 手动压缩上下文：作为 /compact 命令消息发送（运行中会自动排队，当前轮结束后由服务端执行压缩）。 */
+    private fun doCompact() {
+        hideSlashPopup()
+        service.send("/compact")
+    }
+
+    /** 弹层条目：本地 + 服务端内置 + 自定义（按名字去重，靠前的优先）。 */
+    private fun slashItems(): List<SlashCommands.CommandDef> {
+        val seen = LinkedHashSet<String>()
+        return (SlashCommands.LOCAL_COMMANDS.asSequence() + builtinSlash.asSequence() + customSlash.asSequence())
+            .filter { seen.add(it.name) }
+            .toList()
+    }
+
+    /** 文本变化时驱动弹层："/" 开头且尚未输入参数（无空白）时显示/过滤，否则关闭。 */
+    private fun updateSlashPopup() {
+        val query = inputArea.text.trim()
+        val active = query.startsWith("/") && query.length <= 65 &&
+            query.none { it.isWhitespace() } && !imeComposing
+        if (!active) {
+            hideSlashPopup()
+            return
+        }
+        maybeScanCustomCommands()
+        val q = query.removePrefix("/").lowercase()
+        val items = slashItems().filter { it.name.startsWith(q) }
+        if (items.isEmpty()) {
+            hideSlashPopup()
+            return
+        }
+        showSlashPopup(items)
+    }
+
+    /** 自定义命令扫描限频（5 秒一次），文件 IO 放后台线程，结果回 EDT。 */
+    private fun maybeScanCustomCommands() {
+        val now = System.currentTimeMillis()
+        if (now - customScanAt < 5_000) return
+        customScanAt = now
+        val home = File(System.getProperty("user.home"))
+        val base = project.basePath?.let(::File)
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val cmds = runCatching { SlashCommands.scanCustomCommands(home, base) }.getOrDefault(emptyList())
+            ApplicationManager.getApplication().invokeLater {
+                if (cmds != customSlash) {
+                    customSlash = cmds
+                    if (slashPopup?.isVisible == true) updateSlashPopup()
+                }
+            }
+        }
+    }
+
+    private fun hideSlashPopup() {
+        slashPopup?.let { p -> runCatching { p.cancel() } }
+        slashPopup = null
+        slashList = null
+    }
+
+    private val slashCellRenderer = object : DefaultListCellRenderer() {
+        override fun getListCellRendererComponent(
+            list: JList<*>, value: Any, index: Int, selected: Boolean, hasFocus: Boolean,
+        ): Component {
+            val c = super.getListCellRendererComponent(list, value, index, selected, hasFocus)
+            val def = value as? SlashCommands.CommandDef
+            text = def?.let { "/${it.name} — ${it.description}" } ?: ""
+            toolTipText = def?.inputHint
+            return c
+        }
+    }
+
+    /** 弹层挂在输入框上方（底部输入区的补全惯例），非焦点不抢键盘，按键由输入框转发。 */
+    private fun showSlashPopup(items: List<SlashCommands.CommandDef>) {
+        hideSlashPopup()
+        val list = JBList(items).apply {
+            cellRenderer = slashCellRenderer
+            // 原型值让 JBList 布局前就能算出行高，viewport 尺寸才准
+            prototypeCellValue = SlashCommands.CommandDef("prototype", "", null, "local")
+            selectedIndex = 0
+            visibleRowCount = items.size.coerceAtMost(8)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    selectedValue?.let(::completeSlash)
+                }
+            })
+        }
+        val pane = JBScrollPane(list).apply {
+            border = JBUI.Borders.empty()
+            verticalScrollBarPolicy = JBScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+            horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        }
+        val vp = list.preferredScrollableViewportSize
+        val width = inputArea.width.coerceAtLeast(JBUI.scale(280))
+        pane.preferredSize = Dimension(width, vp.height.coerceAtLeast(JBUI.scale(28)))
+        val popup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(pane, list)
+            .setFocusable(false)
+            .setRequestFocus(false)
+            .setCancelOnClickOutside(true)
+            .setCancelOnOtherWindowOpen(true)
+            .setShowBorder(true)
+            .createPopup()
+        slashList = list
+        slashPopup = popup
+        val size = pane.preferredSize
+        popup.setSize(size)
+        val anchor = runCatching { inputArea.locationOnScreen }.getOrNull()
+        if (anchor != null) {
+            popup.showInScreenCoordinates(inputArea, Point(anchor.x, anchor.y - size.height - JBUI.scale(4)))
+        } else {
+            popup.showUnderneathOf(inputArea)
+        }
+    }
+
+    /** 选中一条命令：补全为 "/name "（尾随空格进入参数输入阶段，弹层自动关闭）。 */
+    private fun completeSlash(def: SlashCommands.CommandDef) {
+        hideSlashPopup()
+        inputArea.text = "/${def.name} "
+        inputArea.caretPosition = inputArea.text.length
+        inputArea.requestFocusInWindow()
     }
 
     /** 剪贴板有图片时截获并暂存为待发图片，返回是否已处理；PNG 编码放后台线程，不卡 EDT。 */
@@ -484,17 +701,25 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         true
     }.getOrDefault(false)
 
-    /** 编辑器右键"引用选中代码"入口：挂上待发送的选区上下文并把焦点交给输入框。 */
+    /**
+     * 编辑器右键"引用选中代码"入口：把 `@文件:起-止行` 记号插到输入框光标处并登记，
+     * 发送时才展开成完整引用块。可多次引用不同位置，记号可在文本任意处（对齐 zcode 的内嵌引用）。
+     */
     fun attachSelection(info: zcode.idea.context.SelectionContext.Info) {
-        pendingAttach = info
-        val name = info.relativePath ?: info.activeFile?.name ?: "选区"
-        val lineRange = if (info.startLine != null && info.endLine != null) "第 ${info.startLine}-${info.endLine} 行" else ""
-        val lineCount = info.selectionText?.lineSequence()?.count() ?: 0
-        attachLabel?.apply {
-            text = "已引用 $name $lineRange（共 $lineCount 行）"
-            toolTipText = info.selectionText?.take(800)
+        val token = zcode.idea.context.SelectionContext.refTokenOf(info)
+        pendingRefs[token] = info
+        // 插入光标处，与相邻文字之间自动补空格隔开；未聚焦输入框时 caret 在末尾（或 0），行为自然
+        val doc = inputArea.document
+        val pos = inputArea.caretPosition.coerceIn(0, doc.length)
+        val before = if (pos > 0) doc.getText(pos - 1, 1) else "\n"
+        val after = if (pos < doc.length) doc.getText(pos, 1) else "\n"
+        val insert = buildString {
+            if (!before[0].isWhitespace()) append(' ')
+            append(token)
+            if (!after[0].isWhitespace()) append(' ')
         }
-        attachRow?.apply { isVisible = true; revalidate(); repaint() }
+        doc.insertString(pos, insert, null)
+        inputArea.caretPosition = pos + insert.length
         inputArea.requestFocusInWindow()
     }
 
@@ -658,16 +883,22 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         service.resumeSession(
             sessionId,
             onTranscript = { entries ->
+                val generation = service.viewGeneration()
                 restoreStatus()
-                // 和实时渲染保持一致：同一轮的思考+正文进同一个 AssistantMessagePanel
-                //（思考在折叠区、正文在 body），只有换到用户消息才切面板。
+                // 和实时渲染保持一致：同一轮的思考+工具+正文进同一个 AssistantMessagePanel
+                //（思考/工具在折叠区、正文在 body），只有换到用户消息才切面板。
                 // 分批渲染：超长历史一次性建组件会卡住 EDT
                 var assistant: AssistantMessagePanel? = null
                 fun flushAssistant() {
                     assistant?.let { it.done(null); appendMessage(it) }
                     assistant = null
                 }
+                fun nextAssistant(): AssistantMessagePanel =
+                    assistant ?: AssistantMessagePanel(referenceNavigator::openFile, codeHighlighter,
+                        referenceNavigator::openSymbol, referenceNavigator::decorateSymbols)
+                        .also { assistant = it }
                 fun renderBatch(from: Int) {
+                    if (disposed || !service.isViewCurrent(generation)) return
                     val end = (from + 50).coerceAtMost(entries.size)
                     for (idx in from until end) {
                         val entry = entries[idx]
@@ -679,11 +910,21 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
                                 appendMessage(UserMessagePanel(prompt, ctx))
                             }
                             entry.reasoning != null ->
-                                (assistant ?: AssistantMessagePanel().also { assistant = it }).appendReasoning(entry.reasoning!!)
-                            entry.toolName != null ->
-                                appendMessage(dimLabel(entry.toolName!!).apply { border = JBUI.Borders.empty(2, 10) })
+                                nextAssistant().appendReasoning(entry.reasoning!!)
+                            entry.toolName != null -> {
+                                // 历史工具行也进思考区时间线（与实时渲染一致）：紧凑灰字，默认视为已完成
+                                val raw = entry.toolName!!
+                                val target = entry.toolTarget?.replace('\\', '/')?.take(80)
+                                val label = if (raw.startsWith("📎")) raw else buildString {
+                                    append("✓ ").append(raw.removePrefix("🔧 "))
+                                    if (!target.isNullOrEmpty()) append(" · ").append(target)
+                                }
+                                nextAssistant().addToolCall(
+                                    dimLabel(label).apply { border = JBUI.Borders.empty(1, 8) }
+                                )
+                            }
                             entry.text != null ->
-                                (assistant ?: AssistantMessagePanel().also { assistant = it }).appendText(entry.text!!)
+                                nextAssistant().appendText(entry.text!!)
                         }
                     }
                     if (end < entries.size) {
@@ -742,15 +983,20 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         scrollToBottom()
     }
 
-    /** [force]=false 时仅在用户仍贴底时跟随：流式期间上翻阅读不被拽回底部。 */
+    /**
+     * [force]=true 无条件贴底（用户发消息/恢复会话）；否则仅当用户仍贴底时跟随——
+     * 是否贴底由 [StickyBottomTracker] 依滚动事件维护，用户上翻即停跟随、拉回底部自动恢复。
+     * 注意两跳 invokeLater 期间用户可能已上翻，**执行前必须复查**——只在入队时检查的话，
+     * 密集流式下每个 delta 入队的贴底操作都会压过用户的滚轮（TOCTOU），表现为"怎么翻都被拽回底部"。
+     */
     private fun scrollToBottom(force: Boolean = false) {
-        // 两跳 invokeLater：等布局把 preferred 高度算完再判断/贴底
+        if (!force && !stickyBottom.stuck) return
+        // 两跳 invokeLater：等布局把 preferred 高度算完再贴底
         SwingUtilities.invokeLater {
             SwingUtilities.invokeLater {
+                if (!force && !stickyBottom.stuck) return@invokeLater
                 val bar = scroll.verticalScrollBar
-                val gap = bar.maximum - bar.value - bar.visibleAmount
-                val threshold = (scroll.viewport.height / 3).coerceAtLeast(JBUI.scale(80))
-                if (force || gap < threshold) bar.value = bar.maximum
+                bar.value = bar.maximum
             }
         }
     }
@@ -786,17 +1032,15 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         currentAssistant?.done(null)
         currentAssistant = null
         appendMessage(UserMessagePanel(text, contextBlock))
+        // 自己刚发出的消息必须可见：无条件贴底
+        scrollToBottom(force = true)
     }
 
     override fun onAssistantDelta(kind: AssistantDeltaKind, text: String) {
-        if (currentAssistant == null) {
-            val panel = AssistantMessagePanel()
-            currentAssistant = panel
-            appendMessage(panel)
-        }
+        val panel = ensureAssistantPanel()
         when (kind) {
-            AssistantDeltaKind.TEXT -> currentAssistant?.appendText(text)
-            AssistantDeltaKind.REASONING -> currentAssistant?.appendReasoning(text)
+            AssistantDeltaKind.TEXT -> panel.appendText(text)
+            AssistantDeltaKind.REASONING -> panel.appendReasoning(text)
         }
         scrollToBottom()
     }
@@ -804,8 +1048,18 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
     override fun onToolCall(info: ToolCallInfo) {
         val panel = ToolCallPanel(info) { path -> openFile(path) }
         toolPanels[info.id] = panel
-        appendMessage(panel)
+        // 工具行收进当前助手气泡的思考区时间线（可能早于首个文本 delta，必要时先建面板）
+        ensureAssistantPanel().addToolCall(panel)
+        scrollToBottom()
     }
+
+    /** 取当前轮的助手面板；还没有则创建并挂到消息流。 */
+    private fun ensureAssistantPanel(): AssistantMessagePanel =
+        currentAssistant ?: AssistantMessagePanel(referenceNavigator::openFile, codeHighlighter,
+                        referenceNavigator::openSymbol, referenceNavigator::decorateSymbols).also {
+            currentAssistant = it
+            appendMessage(it)
+        }
 
     override fun onToolUpdate(info: ToolCallInfo) {
         toolPanels[info.id]?.refresh()
@@ -837,10 +1091,12 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
     }
 
     override fun onHistoryCleared() {
+        listingSessions = false
         clearMessages()
         addWelcome()
         // 新会话还没跑任何请求，快照里不会有 contextUsage，先收掉旧值
         contextLabel.isVisible = false
+        compactButton.isEnabled = false
     }
 
     override fun onContextUsage(usedTokens: Long, sizeTokens: Long) {
@@ -848,9 +1104,30 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
         val pct = usedTokens * 100.0 / sizeTokens
         contextLabel.text = "上下文 ${formatTokens(usedTokens)}/${formatTokens(sizeTokens)}"
         contextLabel.foreground = if (pct >= 80) JBColor.RED else ChatColors.dim
-        contextLabel.toolTipText =
-            "当前会话上下文占用：%,d / %,d tokens（%.1f%%）".format(usedTokens, sizeTokens, pct)
+        contextLabel.toolTipText = buildString {
+            append("当前会话上下文占用：%,d / %,d tokens（%.1f%%）".format(usedTokens, sizeTokens, pct))
+            append("\n点击压缩上下文（/compact）：总结当前对话，释放上下文空间")
+            if (pct >= 80) append("\n占用已超过 80%，建议压缩")
+        }
         contextLabel.isVisible = true
+        compactButton.isEnabled = true
+    }
+
+    override fun onSlashCommands(commands: List<SlashCommands.CommandDef>) {
+        builtinSlash = commands
+        if (slashPopup?.isVisible == true) updateSlashPopup()
+    }
+
+    override fun onModeChanged(mode: String, pending: Boolean) {
+        updatingModeCombo = true
+        try {
+            val selected = ZcodeSettings.Mode.fromId(mode)
+            modeCombo.selectedIndex = ZcodeSettings.Mode.entries.indexOf(selected)
+            modeCombo.toolTipText = modeTooltip(selected) + if (pending) "（切换中）" else ""
+            modeCombo.isEnabled = !pending
+        } finally {
+            updatingModeCombo = false
+        }
     }
 
     override fun onModelsChanged(
@@ -901,6 +1178,8 @@ class ChatPanel(private val project: Project) : SimpleToolWindowPanel(true, true
     }
 
     fun dispose() {
+        disposed = true
+        hideSlashPopup()
         service.removeListener(this)
     }
 

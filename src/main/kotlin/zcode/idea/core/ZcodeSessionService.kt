@@ -8,6 +8,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import zcode.idea.commands.SlashCommands
 import zcode.idea.context.SelectionContext
 import zcode.idea.runtime.RuntimeResolver
 import zcode.idea.settings.ZcodeSettings
@@ -36,12 +37,14 @@ class ToolCallInfo(val id: String) {
 /** 会话内被 zcode 修改过的文件（保留首次修改前内容用于 diff） */
 class ChangedFile(
     val path: String,
-    val oldContent: String?,
+    val before: BeforeContent,
     val toolName: String,
     val createdAt: Long,
     /** 历史回填：没有修改前快照。此时 oldContent=null 不代表新建文件，diff 时应提示而非按空文件对比。 */
     val fromHistory: Boolean = false,
-)
+) {
+    val oldContent: String? get() = (before as? BeforeContent.Captured)?.text
+}
 
 data class SessionSummary(
     val sessionId: String,
@@ -72,6 +75,8 @@ data class TranscriptEntry(
     val text: String?,
     val reasoning: String?,
     val toolName: String?,
+    /** 工具调用的目标摘要（file_path/command 等），历史渲染时展示在工具行上。 */
+    val toolTarget: String? = null,
 )
 
 /**
@@ -84,11 +89,24 @@ class ZcodeSessionService(val project: Project) : Disposable {
     private val log = Logger.getInstance(ZcodeSessionService::class.java)
     private val listeners = CopyOnWriteArrayList<Listener>()
     private val startLock = Any()
+    private val tasks = SessionTaskQueue()
+    @Volatile private var disposed = false
+
+    fun viewGeneration(): Long = tasks.token()
+    fun isViewCurrent(token: Long): Boolean = tasks.isCurrent(token) && !project.isDisposed
+
+    @Volatile private var activeSessionGeneration = tasks.token()
+
+    private fun <T> CompletableFuture<T>.await(seconds: Long): T = tasks.await(this, seconds)
+
+    private fun AppServerClient.rpc(method: String, params: JsonObject? = null): CompletableFuture<JsonObject> {
+        tasks.checkCurrent()
+        return request(method, params)
+    }
 
     /**
-     * 发送占位：send 的 EDT 检查与后台置 RUNNING 之间有窗口期，不占位的话第二个发送
-     * 会被服务端 -32010 拒绝并自动 stop，把第一条正在跑的请求打断。
-     * 置位在 EDT 同步段，释放在离开 RUNNING 态时（见 [setState]）。
+     * 后台串行队列内的发送占位：消息派发后保持占位，直到本轮完成或明确被拒。
+     * 超时先查询服务端状态，不自动重发或中止可能已经接受的请求。
      */
     private val sendInFlight = AtomicBoolean(false)
 
@@ -148,15 +166,22 @@ class ZcodeSessionService(val project: Project) : Disposable {
     var currentThoughtLevel: String? = null
         private set
 
+    /** 服务端快照暴露的内置斜杠命令（goal/compact/init/plan…），驱动输入框 "/" 补全。 */
+    @Volatile
+    var slashCommands: List<SlashCommands.CommandDef> = emptyList()
+        private set
+
     private val toolCalls = ConcurrentHashMap<String, ToolCallInfo>()
 
-    /** toolCallId -> (path, 修改前内容) */
-    private val pendingSnapshots = ConcurrentHashMap<String, Pair<String, String?>>()
-
-    /** path -> ChangedFile（多轮修改同一文件时保留最早快照） */
-    private val changedFiles = java.util.Collections.synchronizedMap(LinkedHashMap<String, ChangedFile>())
-
-    private val permissionQueue = ConcurrentLinkedQueue<Array<Any>>() // [id, params, responder]
+    @Volatile private var snapshots = FileSnapshots()
+    private data class PermissionRequest(
+        val connection: AppServerClient, val generation: Long, val sessionId: String,
+        val params: JsonObject, val responder: (JsonObject?) -> Unit,
+    )
+    private val permissionQueue = ConcurrentLinkedQueue<PermissionRequest>()
+    private var permissionDialog: zcode.idea.ui.PermissionDialog? = null
+    private var displayedPermission: PermissionRequest? = null
+    @Volatile private var modeChanging = false
     @Volatile
     private var permissionDialogShowing = false
 
@@ -171,6 +196,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
         fun onContextUsage(usedTokens: Long, sizeTokens: Long) {}
         fun onNotice(text: String, error: Boolean) {}
         fun onHistoryCleared() {}
+        fun onModeChanged(mode: String, pending: Boolean) {}
         fun onModelsChanged(
             models: List<ModelOption>,
             current: ModelOption?,
@@ -178,6 +204,8 @@ class ZcodeSessionService(val project: Project) : Disposable {
             currentThoughtLevel: String?,
         ) {
         }
+
+        fun onSlashCommands(commands: List<SlashCommands.CommandDef>) {}
     }
 
     fun addListener(l: Listener) { listeners.add(l) }
@@ -190,7 +218,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
     /** 预热连接：工具窗口打开时后台拉起 app-server，让首次发送/恢复不必干等冷启动。 */
     fun prewarm() {
         if (client?.isAlive == true) return
-        ApplicationManager.getApplication().executeOnPooledThread {
+        tasks.execute {
             runCatching { ensureConnected() }
         }
     }
@@ -203,6 +231,13 @@ class ZcodeSessionService(val project: Project) : Disposable {
      * （多模态模型实测可见图），所以图片以内嵌 Markdown 方式追加。
      */
     fun send(prompt: String, explicitContext: String? = null, images: List<ImageRef> = emptyList()) {
+        val trimmedPrompt = prompt.trim()
+        // 斜杠命令原样发送：服务端对 /compact、/fork 的拦截要求文本精确匹配，
+        // 自动附加的上下文/图片会让它退化成普通 prompt
+        if (trimmedPrompt.startsWith("/")) {
+            sendCommand(trimmedPrompt, trimmedPrompt)
+            return
+        }
         if (images.isNotEmpty() && currentModel?.supportsImages != true) {
             notice("当前模型 ${currentModel?.display ?: ""} 不支持图像输入，请先在模型下拉中切换到多模态模型", error = true)
             return
@@ -221,32 +256,59 @@ class ZcodeSessionService(val project: Project) : Disposable {
         // 回显气泡里把图片引用并进折叠上下文区，用户点开能看到发了什么
         val displayBlock = (imageMd + (contextBlock ?: "")).trim('\n').ifEmpty { null }
         val content = prompt + imageMd + (contextBlock ?: "")
-        val msg = QueuedSend(prompt, content, displayBlock)
+        enqueueOrDispatch(QueuedSend(prompt, content, displayBlock))
+    }
+
+    /**
+     * 发送一条命令类消息：[display] 是回显文本（如 `/review fix 42`），[content] 是实际发送文本
+     * （自定义命令为客户端展开后的正文；服务端拦截类命令与 display 相同）。
+     * 命令消息不注入 IDE 上下文与图片。运行中照常排队，当前轮结束后自动发出。
+     */
+    fun sendCommand(display: String, content: String) {
+        if (display.isBlank()) return
+        enqueueOrDispatch(QueuedSend(display, content, null))
+    }
+
+    /**
+     * 发送一条内嵌引用块的消息：[display] 是回显文本（输入框原文，含 `@文件:行` 记号），
+     * [content] 是记号已展开成引用代码块的完整正文。不注入自动 IDE 上下文——
+     * 用户已显式引用了要看的代码（与旧 explicitContext 行为一致）。图片 Markdown 仍追加末尾。
+     */
+    fun sendWithRefs(display: String, content: String, images: List<ImageRef> = emptyList()) {
+        if (display.isBlank()) return
+        val imageMd = images.joinToString("") { "\n\n![${it.fileName}](${imageUriOf(it.absolutePath)})" }
+        enqueueOrDispatch(QueuedSend(display, content + imageMd, imageMd.trim('\n').ifEmpty { null }))
+    }
+
+    /** 占坑成功且无轮次在跑 → 立即派发；否则入队等当前轮结束（详见 [send] 的排队说明）。 */
+    private fun enqueueOrDispatch(msg: QueuedSend) = tasks.execute { dispatchOrQueue(msg) }
+
+    private fun dispatchOrQueue(msg: QueuedSend) {
         // 占坑失败、或本端观察本轮仍在流式（turnActive）、或状态机在 RUNNING：一律入队。
         // turnActive 是关键：即使服务端状态事件提前/乱序把占位释放了，消息也不会挤进正在输出的轮次
         val acquired = sendInFlight.compareAndSet(false, true)
-        if (!acquired || turnActive || state == ConnectionState.RUNNING) {
+        if (!acquired || turnActive || modeChanging || state == ConnectionState.RUNNING) {
             if (acquired) sendInFlight.set(false)
             sendQueue.add(msg)
             log.info("消息入队（第 ${sendQueue.size} 条），待当前轮结束后发送")
-            notice("上一轮仍在运行，已排队（第 ${sendQueue.size} 条），完成后自动发送", error = false)
+            notice("正在等待当前操作完成，已排队（第 ${sendQueue.size} 条），完成后自动发送", error = false)
             return
         }
         dispatchSend(msg)
     }
 
-    /** 立即发出一条消息：回显气泡 + 后台执行整轮（含 -32010/-32031 恢复路径）。 */
+    /** 立即发出一条消息：回显气泡 + 后台执行整轮（含状态核实及 -32031 恢复路径）。 */
     private fun dispatchSend(msg: QueuedSend) {
         log.info("派发消息: ${msg.prompt.lineSequence().firstOrNull()?.take(40)}")
         fire { it.onUserEcho(msg.prompt, msg.displayBlock) }
-        ApplicationManager.getApplication().executeOnPooledThread {
+        tasks.execute {
             try {
                 ensureConnected()
                 val sid = sessionId
                 if (sid == null) {
                     setState(ConnectionState.DEAD, "会话未就绪")
                     notice("会话未就绪，请点击“新会话”重试", error = true)
-                    return@executeOnPooledThread
+                    return@execute
                 }
                 setState(ConnectionState.RUNNING, null)
                 turnActive = true
@@ -254,15 +316,6 @@ class ZcodeSessionService(val project: Project) : Disposable {
                     sendWithSession(sid, msg.content)
                 } catch (e: Exception) {
                     when (rpcCodeOf(e)) {
-                        // 服务端认为该会话上一轮还没结束（如恢复了中断的会话）：stop 后重试一次
-                        -32010 -> {
-                            log.info("session/send 被拒(-32010)，session/stop 后重试一次")
-                            runCatching {
-                                client?.request("session/stop", JsonObject().apply { addProperty("sessionId", sid) })
-                                    ?.get(10, TimeUnit.SECONDS)
-                            }
-                            sendWithSession(sid, msg.content)
-                        }
                         // 恢复的历史会话绑定的模型已不可用：fork 出一个继承全部历史的新会话继续
                         -32031 -> {
                             val forked = forkSession(sid)
@@ -277,12 +330,28 @@ class ZcodeSessionService(val project: Project) : Disposable {
                     }
                 }
             } catch (e: Exception) {
+                tasks.checkCurrent()
                 log.warn("session/send 失败", e)
-                val alive = client?.isAlive == true
-                setState(if (alive) ConnectionState.READY else ConnectionState.DEAD, e.message)
                 notice(describeError(e), error = true)
-                // 本轮发送失败但连接还在：继续消化队列（断连时 setState 会清空队列）
-                if (alive) drainQueue()
+                val c = client
+                if (c?.isAlive != true) {
+                    turnActive = false
+                    setState(ConnectionState.DEAD, e.message)
+                } else if (rpcCodeOf(e) != null && rpcCodeOf(e) != -32010) {
+                    finishRejectedSend()
+                } else {
+                    // Timeout does not imply rejection. Reconcile before releasing the queue.
+                    val status = runCatching {
+                        sessionId?.let { sessionStatus(subscribeRequest(c, it).await(10)) }
+                    }.getOrNull()
+                    tasks.checkCurrent()
+                    if (status == "idle") finishRejectedSend()
+                    else {
+                        turnActive = true
+                        setState(ConnectionState.RUNNING, "等待服务端确认")
+                        notice("发送结果尚未确认，已暂停后续消息；可等待当前轮结束或点击停止", error = true)
+                    }
+                }
             }
         }
     }
@@ -293,7 +362,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
      * CAS 保证并发触发（idle 事件 + 错误恢复路径同帧到达）时也只有一条真正发出。
      */
     private fun drainQueue() {
-        if (turnActive) return // 本端还没观察到本轮结束，绝不放行下一条
+        if (turnActive || modeChanging) return // 本端还没观察到本轮结束，绝不放行下一条
         val next = sendQueue.peek() ?: return
         if (!sendInFlight.compareAndSet(false, true)) return
         sendQueue.poll()
@@ -319,13 +388,13 @@ class ZcodeSessionService(val project: Project) : Disposable {
             addProperty("sessionId", sid)
             addProperty("content", content)
         }
-        client!!.request("session/send", params).get(60, TimeUnit.SECONDS)
+        client!!.rpc("session/send", params).await(60)
     }
 
     /** session/fork：派生一个继承当前会话全部历史的新会话（新记录绑定当前可用模型），返回新 sessionId。 */
     private fun forkSession(sid: String): String? = runCatching {
-        val r = client!!.request("session/fork", JsonObject().apply { addProperty("sessionId", sid) })
-            .get(30, TimeUnit.SECONDS)
+        val r = client!!.rpc("session/fork", JsonObject().apply { addProperty("sessionId", sid) })
+            .await(30)
         r.getAsJsonObject("session")?.get("sessionId")?.takeIf { !it.isJsonNull }?.asString
             ?: r.get("forkedSessionId")?.takeIf { !it.isJsonNull }?.asString
     }.onFailure { log.warn("session/fork 失败", it) }.getOrNull()
@@ -340,65 +409,99 @@ class ZcodeSessionService(val project: Project) : Disposable {
         return null
     }
 
+    private fun finishRejectedSend() {
+        turnActive = false
+        snapshots.clearPending()
+        setState(ConnectionState.READY, null)
+        fire { it.onAssistantDone(null) }
+        drainQueue()
+    }
+
+    private fun sessionStatus(reply: JsonObject): String? {
+        val snapshot = reply.obj("snapshot") ?: reply
+        return snapshot.obj("session")?.get("status")?.takeIf { it.isJsonPrimitive }?.asString
+            ?: snapshot.obj("projection")?.get("status")?.takeIf { it.isJsonPrimitive }?.asString
+    }
+
     fun stopCurrentTurn() {
-        // 停止 = 放弃当前轮和所有排队消息
-        clearQueue()
-        turnActive = false
-        val c = client ?: return
-        val sid = sessionId ?: return
-        c.request("session/stop", JsonObject().apply { addProperty("sessionId", sid) })
-            .whenComplete { _, _ ->
-                // 服务端 stop 完成后本地收尾（个别情况下不会再推结束事件）
-                if (state == ConnectionState.RUNNING) {
-                    setState(ConnectionState.READY, null)
-                    fire { it.onAssistantDone(null) }
+        val generation = tasks.invalidate()
+        tasks.execute(generation) {
+            clearQueue()
+            fire { it.onModeChanged(mode, modeChanging) }
+            cancelPermissions()
+            val c = client ?: return@execute
+            val sid = sessionId ?: return@execute
+            activeSessionGeneration = generation
+            c.rpc("session/stop", JsonObject().apply { addProperty("sessionId", sid) })
+                .whenComplete { _, error ->
+                    tasks.execute(generation) completion@{
+                        if (client !== c || sessionId != sid) return@completion
+                        if (error != null) {
+                            notice("停止失败：" + describeError(error), error = true)
+                        } else {
+                            if (modeChanging) reconcileMode(c, sid)
+                            finishRejectedSend()
+                        }
+                    }
                 }
-            }
+        }
     }
 
-    /** 新建会话（不复用当前 sessionId）。 */
     fun newSession() {
-        val old = sessionId
-        sessionId = null
-        toolCalls.clear()
-        pendingSnapshots.clear()
-        sendQueue.clear() // 换新会话：静默丢弃排队消息（上下文已切换）
-        turnActive = false
-        synchronized(changedFiles) { changedFiles.clear() }
-        fire { it.onHistoryCleared() }
-        if (client?.isAlive == true && old != null) {
-            client?.request("session/close", JsonObject().apply { addProperty("sessionId", old) })
-                ?.exceptionally { null }
-        }
-        ApplicationManager.getApplication().executeOnPooledThread {
-            runCatching { ensureConnected() }
+        val generation = tasks.invalidate()
+        tasks.execute(generation) {
+            val old = sessionId
+            resetConversation()
+            sessionId = null
+            if (old != null) client?.rpc("session/close", JsonObject().apply { addProperty("sessionId", old) })
+            runCatching { ensureConnected() }.onFailure {
+                tasks.checkCurrent()
+                notice(describeError(it), error = true)
+            }
         }
     }
 
-    /** 恢复历史会话并回调转录（EDT）。session/read 只对进程内活跃的会话可用，必须先 session/resume 激活。 */
-    fun resumeSession(id: String, onTranscript: (List<TranscriptEntry>) -> Unit, onError: (String) -> Unit) {
-        sendQueue.clear() // 切换会话：排队消息属于旧会话的对话流，静默丢弃
+    private fun resetConversation() {
+        toolCalls.clear()
+        snapshots = FileSnapshots()
+        sendQueue.clear()
+        sendInFlight.set(false)
         turnActive = false
+        modeChanging = false
+        cancelPermissions()
         fire { it.onHistoryCleared() }
-        ApplicationManager.getApplication().executeOnPooledThread {
+        fire { it.onModeChanged(mode, false) }
+    }
+
+    fun resumeSession(id: String, onTranscript: (List<TranscriptEntry>) -> Unit, onError: (String) -> Unit) {
+        val generation = tasks.invalidate()
+        tasks.execute(generation) {
+            val old = sessionId
+            resetConversation()
             try {
                 val c = ensureConnected()
+                if (old != null && old != id) {
+                    c.rpc("session/close", JsonObject().apply { addProperty("sessionId", old) })
+                }
                 activateSession(c, id)
                 val entries = readTranscript(id)
-                ApplicationManager.getApplication().invokeLater { onTranscript(entries) }
+                onEdt(generation) { onTranscript(entries) }
             } catch (e: Exception) {
+                tasks.checkCurrent()
                 log.warn("恢复会话失败", e)
-                ApplicationManager.getApplication().invokeLater { onError(describeError(e)) }
+                sessionId = null
+                setState(ConnectionState.DEAD, "恢复会话失败")
+                onEdt(generation) { onError(describeError(e)) }
             }
         }
     }
 
     fun listSessions(cb: (List<SessionSummary>) -> Unit, onError: (String) -> Unit) {
         val basePath = project.basePath ?: return onError("项目无磁盘路径")
-        ApplicationManager.getApplication().executeOnPooledThread {
+        tasks.execute {
             try {
                 ensureConnected()
-                val result = client!!.request("session/list", workspaceParams(basePath)).get(30, TimeUnit.SECONDS)
+                val result = client!!.rpc("session/list", workspaceParams(basePath)).await(30)
                 val sessions = (result.getAsJsonArray("sessions") ?: JsonArray()).mapNotNull { el ->
                     val o = el.asJsonObject
                     SessionSummary(
@@ -409,22 +512,73 @@ class ZcodeSessionService(val project: Project) : Disposable {
                         updatedAt = o.get("updatedAt")?.asLong ?: 0L,
                     )
                 }
-                ApplicationManager.getApplication().invokeLater { cb(sessions) }
+                onEdt { cb(sessions) }
             } catch (e: Exception) {
                 log.warn("session/list 失败", e)
-                ApplicationManager.getApplication().invokeLater { onError(describeError(e)) }
+                onEdt { onError(describeError(e)) }
             }
         }
     }
 
-    fun setMode(modeId: String) {
-        mode = modeId
-        val c = client ?: return
-        val sid = sessionId ?: return
-        c.request("session/setMode", JsonObject().apply {
+    fun setMode(modeId: String) = tasks.execute {
+        if (ZcodeSettings.Mode.entries.none { it.id == modeId } || modeChanging) {
+            fire { it.onModeChanged(mode, modeChanging) }
+            return@execute
+        }
+        val c = client
+        val sid = sessionId
+        if (c == null || sid == null) {
+            mode = modeId
+            fire { it.onModeChanged(mode, false) }
+            return@execute
+        }
+        modeChanging = true
+        fire { it.onModeChanged(mode, true) }
+        val generation = tasks.token()
+        c.rpc("session/setMode", JsonObject().apply {
             addProperty("sessionId", sid)
             addProperty("mode", modeId)
-        }).exceptionally { null }
+        }).whenComplete { _, error ->
+            tasks.execute(generation) completion@{
+                if (client !== c || sessionId != sid) return@completion
+                if (error == null) {
+                    mode = modeId
+                    modeChanging = false
+                } else if (rpcCodeOf(error) != null) {
+                    modeChanging = false
+                    notice("切换权限模式失败：" + describeError(error), error = true)
+                } else {
+                    // A transport failure can arrive after the server already applied the mode.
+                    // Keep sends paused until a snapshot confirms the actual permission policy.
+                    reconcileMode(c, sid)
+                }
+                fire { it.onModeChanged(mode, modeChanging) }
+                drainQueue()
+            }
+        }
+    }
+
+    private fun syncMode(reply: JsonObject): Boolean {
+        val snapshot = reply.obj("snapshot") ?: reply
+        val actual = snapshot.obj("session")?.get("mode")?.takeIf { it.isJsonPrimitive }?.asString
+            ?: snapshot.obj("projection")?.get("mode")?.takeIf { it.isJsonPrimitive }?.asString
+            ?: return false
+        if (ZcodeSettings.Mode.entries.none { it.id == actual }) return false
+        mode = actual
+        fire { it.onModeChanged(actual, modeChanging) }
+        return true
+    }
+
+    private fun reconcileMode(c: AppServerClient, sid: String) {
+        modeChanging = true
+        val reply = runCatching { subscribeRequest(c, sid).await(10) }.getOrNull()
+        tasks.checkCurrent()
+        if (reply != null && syncMode(reply)) {
+            modeChanging = false
+        } else {
+            notice("尚未确认服务端权限模式，已暂停发送；请新建会话或重新连接后再试", error = true)
+        }
+        fire { it.onModeChanged(mode, modeChanging) }
     }
 
     /**
@@ -432,21 +586,17 @@ class ZcodeSessionService(val project: Project) : Disposable {
      * 外键级联清掉消息/工具记录），用 node 自带的 node:sqlite 执行删除。
      */
     fun deleteSession(id: String, onDone: () -> Unit, onError: (String) -> Unit) {
-        ApplicationManager.getApplication().executeOnPooledThread {
+        val generation = if (id == sessionId) tasks.invalidate() else tasks.token()
+        tasks.execute(generation) {
             try {
                 // 服务端可能仍持有该会话，先尝试通知关闭（非活跃时会被拒绝，忽略即可）
-                client?.takeIf { it.isAlive }?.request("session/close", JsonObject().apply {
+                client?.takeIf { it.isAlive }?.rpc("session/close", JsonObject().apply {
                     addProperty("sessionId", id)
-                })?.exceptionally { null }?.get(5, TimeUnit.SECONDS)
+                })?.exceptionally { null }?.await(5)
 
                 if (id == sessionId) {
                     sessionId = null
-                    toolCalls.clear()
-                    pendingSnapshots.clear()
-                    sendQueue.clear()
-                    turnActive = false
-                    synchronized(changedFiles) { changedFiles.clear() }
-                    fire { it.onHistoryCleared() }
+                    resetConversation()
                 }
 
                 val node = RuntimeResolver.resolve(settings).getOrThrow().nodeExecutable
@@ -477,36 +627,40 @@ class ZcodeSessionService(val project: Project) : Disposable {
                 }
                 if (changes == 0) error("会话不存在（可能已被删除）")
                 log.info("已删除会话 $id")
-                ApplicationManager.getApplication().invokeLater { onDone() }
+                onEdt { onDone() }
             } catch (e: Exception) {
                 log.warn("删除会话失败 $id", e)
-                ApplicationManager.getApplication().invokeLater { onError(describeError(e)) }
+                onEdt { onError(describeError(e)) }
             }
         }
     }
 
     fun currentMode(): String = mode
 
-    fun changedFilesSnapshot(): List<ChangedFile> = synchronized(changedFiles) { changedFiles.values.toList() }
+    fun changedFilesSnapshot(): List<ChangedFile> = snapshots.files()
 
     /** 首次修改前内容（用于 diff），文件为新建时为 null。 */
     fun oldContentOf(path: String): String? = changedFilesSnapshot().firstOrNull { it.path == path }?.oldContent
 
     fun restartProcess() {
-        synchronized(startLock) {
+        val generation = tasks.invalidate()
+        tasks.execute(generation) {
             client?.close()
             client = null
             sessionId = null
+            resetConversation()
             setState(ConnectionState.DISCONNECTED, null)
-        }
-        ApplicationManager.getApplication().executeOnPooledThread {
-            runCatching { ensureConnected() }
+            runCatching { ensureConnected() }.onFailure {
+                tasks.checkCurrent()
+                notice(describeError(it), error = true)
+            }
         }
     }
 
     // ------------------------------------------------------------------ 连接管理
 
     private fun ensureConnected(): AppServerClient {
+        tasks.checkCurrent()
         val existing = client?.takeIf { it.isAlive }
         if (existing != null && sessionId != null) return existing
         synchronized(startLock) {
@@ -516,6 +670,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
                 // 必须在现有连接上补建会话，不能直接返回——否则后续 send 永远“会话未就绪”
                 val basePath = project.basePath ?: error("项目无磁盘路径")
                 createOrResumeSession(c, basePath)
+                setState(if (turnActive) ConnectionState.RUNNING else ConnectionState.READY, null)
                 return c
             }
             setState(ConnectionState.STARTING, null)
@@ -526,18 +681,20 @@ class ZcodeSessionService(val project: Project) : Disposable {
                 }
             val basePath = project.basePath ?: error("项目无磁盘路径")
             val c = AppServerClient.start(resolved.nodeExecutable, resolved.runtimeScript, basePath)
-            c.listener = ClientListener()
             client = c
+            c.listener = ClientListener(c)
+            if (disposed) { c.close(); tasks.checkCurrent() }
             try {
                 syncModelCatalog(c, basePath)
                 createOrResumeSession(c, basePath)
             } catch (e: Exception) {
                 c.close()
                 client = null
+                tasks.checkCurrent()
                 setState(ConnectionState.DEAD, e.message)
                 throw e
             }
-            setState(ConnectionState.READY, resolved.source)
+            setState(if (turnActive) ConnectionState.RUNNING else ConnectionState.READY, resolved.source)
             return c
         }
     }
@@ -561,15 +718,15 @@ class ZcodeSessionService(val project: Project) : Disposable {
         for (provider in cfg.providers.values) {
             for (model in provider.models) {
                 runCatching {
-                    c.request("workspace/readState", workspaceParams(basePath).apply {
+                    c.rpc("workspace/readState", workspaceParams(basePath).apply {
                         add("runtimeModel", cfg.runtimeModelJson(provider, model, "idea-${provider.providerId}-${model.modelId}-${System.currentTimeMillis()}"))
-                    }).get(30, TimeUnit.SECONDS)
+                    }).await(30)
                 }.onFailure { log.warn("模型目录回推失败 ${provider.providerId}/${model.modelId}", it) }
             }
         }
         // 回推完成后读一次最终状态：拿权威的可用模型列表喂给选择器
         runCatching {
-            val st = c.request("workspace/readState", workspaceParams(basePath)).get(30, TimeUnit.SECONDS)
+            val st = c.rpc("workspace/readState", workspaceParams(basePath)).await(30)
             val settingsObj = st.getAsJsonObject("settings") ?: return@runCatching
             val modelSettings = settingsObj.getAsJsonObject("model") ?: return@runCatching
             val options = (modelSettings.getAsJsonArray("available") ?: JsonArray()).mapNotNull { el ->
@@ -617,17 +774,25 @@ class ZcodeSessionService(val project: Project) : Disposable {
         }.onFailure { log.warn("读取模型列表失败", it) }
     }
 
-    /** 用户在思考强度下拉里选定：持久化 + 切换当前会话。 */
-    fun selectThoughtLevel(value: String) {
+    fun selectThoughtLevel(value: String) = tasks.execute {
+        val c = client
+        val sid = sessionId
+        if (c != null && sid != null) {
+            try {
+                c.rpc("session/setThoughtLevel", JsonObject().apply {
+                    addProperty("sessionId", sid)
+                    addProperty("thoughtLevel", value)
+                }).await(15)
+            } catch (e: Exception) {
+                tasks.checkCurrent()
+                notice("切换思考强度失败：" + describeError(e), error = true)
+                fire { it.onModelsChanged(availableModels, currentModel, availableThoughtLevels, currentThoughtLevel) }
+                return@execute
+            }
+        }
         settings.state.preferredThoughtLevel = value
         currentThoughtLevel = value
         fire { it.onModelsChanged(availableModels, currentModel, availableThoughtLevels, value) }
-        val c = client ?: return
-        val sid = sessionId ?: return
-        c.request("session/setThoughtLevel", JsonObject().apply {
-            addProperty("sessionId", sid)
-            addProperty("thoughtLevel", value)
-        }).exceptionally { null }
     }
 
     private fun preferredModelRef(): ZcodeCliConfig.ModelRef? {
@@ -638,45 +803,38 @@ class ZcodeSessionService(val project: Project) : Disposable {
     }
 
     /** 用户在模型选择器里选定模型：切换当前会话；RPC 成功后才更新状态与偏好，失败则回滚显示并提示。 */
-    fun selectModel(option: ModelOption) {
+    fun selectModel(option: ModelOption) = tasks.execute {
         val previous = currentModel
         val c = client
         val sid = sessionId
-        if (c == null || sid == null) {
-            // 未连接：只记住偏好，连接/建会话时生效
-            settings.state.preferredModelProvider = option.providerId
-            settings.state.preferredModelId = option.modelId
-            currentModel = option
-            fire { it.onModelsChanged(availableModels, option, availableThoughtLevels, currentThoughtLevel) }
-            return
-        }
-        c.request("session/setModel", JsonObject().apply {
-            addProperty("sessionId", sid)
-            add("model", JsonObject().apply {
-                addProperty("providerId", option.providerId)
-                addProperty("modelId", option.modelId)
-            })
-        }).whenComplete { _, err ->
-            if (err != null) {
-                log.warn("session/setModel 失败，回滚模型显示", err)
+        if (c != null && sid != null) {
+            try {
+                c.rpc("session/setModel", JsonObject().apply {
+                    addProperty("sessionId", sid)
+                    add("model", JsonObject().apply {
+                        addProperty("providerId", option.providerId)
+                        addProperty("modelId", option.modelId)
+                    })
+                }).await(30)
+            } catch (e: Exception) {
+                tasks.checkCurrent()
                 currentModel = previous
                 fire { it.onModelsChanged(availableModels, previous, availableThoughtLevels, currentThoughtLevel) }
-                notice("切换模型失败：${describeError(err)}", error = true)
-            } else {
-                settings.state.preferredModelProvider = option.providerId
-                settings.state.preferredModelId = option.modelId
-                currentModel = option
-                fire { it.onModelsChanged(availableModels, option, availableThoughtLevels, currentThoughtLevel) }
-                // 新模型可用的思考强度档位可能不同，重读一次
-                project.basePath?.let { bp -> refreshThoughtLevels(c, bp) }
+                notice("切换模型失败：" + describeError(e), error = true)
+                return@execute
             }
         }
+        settings.state.preferredModelProvider = option.providerId
+        settings.state.preferredModelId = option.modelId
+        currentModel = option
+        fire { it.onModelsChanged(availableModels, option, availableThoughtLevels, currentThoughtLevel) }
+        if (c != null && sid != null) project.basePath?.let { refreshThoughtLevels(c, it) }
     }
 
     /** 重读 workspace/readState 的思考强度档位并广播（模型切换后档位随模型变化）。 */
     private fun refreshThoughtLevels(c: AppServerClient, basePath: String) {
         runCatching {
-            val st = c.request("workspace/readState", workspaceParams(basePath)).get(30, TimeUnit.SECONDS)
+            val st = c.rpc("workspace/readState", workspaceParams(basePath)).await(30)
             val tl = st.getAsJsonObject("settings")?.getAsJsonObject("thoughtLevel")
             availableThoughtLevels = (tl?.getAsJsonArray("available") ?: JsonArray()).mapNotNull { el ->
                 val o = el.asJsonObject
@@ -706,12 +864,12 @@ class ZcodeSessionService(val project: Project) : Disposable {
         var resumedId: String? = null
         if (existing != null) {
             result = runCatching {
-                c.request("session/resume", resumeParams(basePath, existing)).get(60, TimeUnit.SECONDS)
+                c.rpc("session/resume", resumeParams(basePath, existing)).await(60)
             }.onFailure { log.info("session/resume 失败，回退为新建: ${it.message}") }.getOrNull()
             if (result != null) resumedId = existing
         }
         if (result == null) {
-            result = c.request("session/create", JsonObject().apply {
+            result = c.rpc("session/create", JsonObject().apply {
                 add("workspace", JsonObject().apply {
                     addProperty("workspaceKey", basePath)
                     addProperty("workspacePath", basePath)
@@ -724,20 +882,24 @@ class ZcodeSessionService(val project: Project) : Disposable {
                         addProperty("modelId", sel.second.modelId)
                     })
                 }
-            }).get(90, TimeUnit.SECONDS)
+            }).await(90)
         }
         val sid = result.getAsJsonObject("session")?.get("sessionId")?.asString
             ?: resumedId
             ?: error("session/create 响应中没有 sessionId")
         sessionId = sid
+        activeSessionGeneration = tasks.token()
+        turnActive = sessionStatus(result) == "running"
+        syncMode(result)
         subscribeSession(c, sid)
+        updateSlashCommands(result)
         // create 参数不支持思考强度，建好后单独应用偏好
         settings.state.preferredThoughtLevel.takeIf { it.isNotBlank() }?.let { level ->
             runCatching {
-                c.request("session/setThoughtLevel", JsonObject().apply {
+                c.rpc("session/setThoughtLevel", JsonObject().apply {
                     addProperty("sessionId", sid)
                     addProperty("thoughtLevel", level)
-                }).get(15, TimeUnit.SECONDS)
+                }).await(15)
             }.onFailure { log.info("应用思考强度 $level 失败: ${it.message}") }
         }
         log.info("zcode 会话就绪: $sid")
@@ -767,12 +929,14 @@ class ZcodeSessionService(val project: Project) : Disposable {
     private fun subscribeSession(c: AppServerClient, sid: String) {
         // includeSnapshot=true：回复带 session 快照，runtime.contextUsage 是当前上下文占用（used/size），
         // 用来驱动工具栏的“上下文 x/y”显示
-        val reply = subscribeRequest(c, sid).get(30, TimeUnit.SECONDS)
+        val reply = subscribeRequest(c, sid).await(30)
         fireContextUsage(reply)
+        syncMode(reply)
+        updateSlashCommands(reply)
     }
 
     private fun subscribeRequest(c: AppServerClient, sid: String) =
-        c.request("session/subscribe", JsonObject().apply {
+        c.rpc("session/subscribe", JsonObject().apply {
             addProperty("sessionId", sid)
             addProperty("deliveryKind", "desktop-continuous")
             // 不传 afterSeq：服务端只在显式传 afterSeq 时才回放该 seq 之后的历史事件，缺省仅推送订阅之后的新事件
@@ -783,7 +947,12 @@ class ZcodeSessionService(val project: Project) : Disposable {
     private fun pollContextUsage() {
         val c = client ?: return
         val sid = sessionId ?: return
-        subscribeRequest(c, sid).whenComplete { reply, _ -> reply?.let(::fireContextUsage) }
+        val generation = tasks.token()
+        subscribeRequest(c, sid).whenComplete { reply, _ ->
+            tasks.execute(generation) {
+                if (client === c && sessionId == sid) reply?.let(::fireContextUsage)
+            }
+        }
     }
 
     private fun fireContextUsage(reply: JsonObject?) {
@@ -793,31 +962,53 @@ class ZcodeSessionService(val project: Project) : Disposable {
         fire { it.onContextUsage(used, size) }
     }
 
+    /**
+     * 从会话快照类响应（session/create、session/resume、session/subscribe）解析服务端
+     * 暴露的内置斜杠命令。只保留 builtin：custom 由插件本地扫描 .md 文件获得
+     * （服务端只报名字不报内容，展开必须客户端自己做）。
+     */
+    private fun updateSlashCommands(source: JsonObject?) {
+        val arr = source?.getAsJsonArray("slashCommands")
+            ?: source?.obj("snapshot")?.getAsJsonArray("slashCommands")
+            ?: return
+        val builtins = arr.mapNotNull { el ->
+            runCatching {
+                val o = el.asJsonObject
+                val name = o.get("name")?.takeIf { !it.isJsonNull }?.asString ?: return@mapNotNull null
+                SlashCommands.CommandDef(
+                    name = name,
+                    description = o.get("description")?.takeIf { !it.isJsonNull }?.asString ?: "",
+                    inputHint = o.get("inputHint")?.takeIf { !it.isJsonNull }?.asString,
+                    source = "builtin",
+                )
+            }.getOrNull()
+        }.filter { it.source == "builtin" }
+        if (builtins.isNotEmpty() && builtins != slashCommands) {
+            slashCommands = builtins
+            log.info("服务端内置命令: ${builtins.joinToString(", ") { "/" + it.name }}")
+            fire { it.onSlashCommands(builtins) }
+        }
+    }
+
     private fun JsonObject.obj(member: String): JsonObject? =
         get(member)?.takeIf { it.isJsonObject }?.asJsonObject
 
     /** 激活一个历史会话（session/read、session/send、session/subscribe 都只对活跃会话可用）。 */
     private fun activateSession(c: AppServerClient, id: String) {
-        if (id == sessionId && (state == ConnectionState.READY || state == ConnectionState.RUNNING)) return
         val basePath = project.basePath ?: error("项目无磁盘路径")
-        runCatching {
-            c.request("session/resume", resumeParams(basePath, id)).get(60, TimeUnit.SECONDS)
-        }.getOrElse { e ->
-            throw IllegalStateException("激活历史会话失败: ${describeError(e)}", e)
-        }
-        subscribeSession(c, id)
+        val reply = c.rpc("session/resume", resumeParams(basePath, id)).await(60)
         sessionId = id
-        // 恢复的会话可能带着上次中断时的“运行中”状态；显式回 READY，避免客户端把后续发送拦下。
-        // 若服务端确实要续跑上一轮，会再推 state.updated(running) 把状态改回去。
-        if (state == ConnectionState.RUNNING || state == ConnectionState.STARTING) {
-            setState(ConnectionState.READY, null)
-        }
-        log.info("历史会话已激活: $id")
+        activeSessionGeneration = tasks.token()
+        syncMode(reply)
+        subscribeSession(c, id)
+        turnActive = sessionStatus(reply) == "running"
+        setState(if (turnActive) ConnectionState.RUNNING else ConnectionState.READY, null)
+        log.info("历史会话已激活: " + id)
     }
 
     private fun readTranscript(sid: String): List<TranscriptEntry> {
-        val result = client!!.request("session/read", JsonObject().apply { addProperty("sessionId", sid) })
-            .get(60, TimeUnit.SECONDS)
+        val result = client!!.rpc("session/read", JsonObject().apply { addProperty("sessionId", sid) })
+            .await(60)
         val entries = mutableListOf<TranscriptEntry>()
         val messages = result.getAsJsonArray("messages") ?: JsonArray()
         for (msgEl in messages) {
@@ -841,7 +1032,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
                             } ?: "?"
                             val input = (toolEl as? JsonObject)?.get("input")?.takeIf { it.isJsonObject }?.asJsonObject
                                 ?: part.getAsJsonObject("state")?.get("input")?.takeIf { it.isJsonObject }?.asJsonObject
-                            entries.add(TranscriptEntry(role, null, null, "🔧 $name"))
+                            entries.add(TranscriptEntry(role, null, null, "🔧 $name", toolTargetOf(input)))
                             // 回填工具修改过的文件，便于 diff
                             registerToolFromHistory(name, input)
                         }
@@ -868,40 +1059,78 @@ class ZcodeSessionService(val project: Project) : Disposable {
         // 只登记写工具：历史里的 Read 等只读工具也带 file_path，但并不曾修改文件
         if (!isFileTool(name)) return
         val path = filePathOf(name, input) ?: return
-        registerChangedFile(path, name, oldContent = null, fromHistory = true)
+        snapshots.registerHistory(resolveToolFile(path).path, name)
+    }
+
+    /** 历史工具调用的目标摘要（展示用）：file_path/path 优先，其次 command/pattern/query/url/prompt。 */
+    private fun toolTargetOf(input: JsonObject?): String? {
+        if (input == null) return null
+        for (key in listOf("file_path", "path", "notebook_path", "command", "pattern", "query", "url", "prompt")) {
+            val v = input.get(key)?.takeIf { !it.isJsonNull }?.asString
+            if (!v.isNullOrEmpty()) return v
+        }
+        return null
     }
 
     // ------------------------------------------------------------------ 协议事件处理
 
-    private inner class ClientListener : AppServerClient.Listener {
-
+    private inner class ClientListener(private val connection: AppServerClient) : AppServerClient.Listener {
         override fun onNotification(method: String, params: JsonObject?) {
-            when (method) {
-                "session/event" -> handleSessionEvent(params ?: return)
-                "state.updated" -> handleStateUpdated(params ?: return)
+            val payload = params ?: return
+            val store = snapshots
+            val generation = tasks.token()
+            if (activeSessionGeneration != generation || client !== connection || !belongsToSession(payload)) return
+            // Preserve pre-write capture even while the session worker awaits another RPC.
+            // A switched session owns a new store, so an old reader cannot pollute its snapshots.
+            if (method == "session/event" && payload.get("type")?.asString == "model.streaming") {
+                val event = payload.obj("payload")
+                if (event?.get("kind")?.asString == "tool_call") {
+                    val name = event.get("toolName")?.asString ?: ""
+                    val id = event.get("toolCallId")?.asString
+                    val path = filePathOf(name, event.obj("input"))
+                    if (id != null && path != null && isFileTool(name)) {
+                        store.capture(id, resolveToolFile(path))
+                    }
+                }
+            }
+            tasks.execute(generation) {
+                if (client !== connection || !belongsToSession(payload)) return@execute
+                when (method) {
+                    "session/event" -> handleSessionEvent(payload)
+                    "state.updated" -> handleStateUpdated(payload)
+                }
             }
         }
 
         override fun onRequest(id: String, method: String, params: JsonObject, responder: (JsonObject?) -> Unit) {
-            when (method) {
-                "interaction/requestPermission" -> {
-                    permissionQueue.add(arrayOf(id, params, responder))
-                    pumpPermissionQueue()
-                }
-                else -> {
-                    // session/requestRuntimePreferences 等返回 -32601 是官方容错路径（走默认值）
-                    client?.respondError(id, -32601, "not supported by idea plugin")
-                }
+            if (method != "interaction/requestPermission") {
+                connection.respondError(id, -32601, "not supported by idea plugin")
+                return
             }
+            // Approvals must remain independent of the worker's synchronous RPC waits.
+            val generation = tasks.token()
+            val sid = params.get("sessionId")?.takeIf { it.isJsonPrimitive }?.asString
+            if (sid == null || activeSessionGeneration != generation ||
+                client !== connection || sessionId != sid || !tasks.isCurrent(generation)) {
+                responder(denyPermission())
+                return
+            }
+            permissionQueue.add(PermissionRequest(connection, generation, sid, params, responder))
+            pumpPermissionQueue()
         }
 
         override fun onExited(code: Int?) {
-            if (state != ConnectionState.DISCONNECTED) {
-                setState(ConnectionState.DEAD, "zcode 进程退出（code=$code），下次发送时将自动重启")
-                notice("zcode 进程退出（code=$code）", error = true)
+            tasks.execute {
+                if (client !== connection || state == ConnectionState.DISCONNECTED) return@execute
+                setState(ConnectionState.DEAD, "zcode 进程退出，下次发送时将自动重启")
+                cancelPermissions()
+                notice("zcode 进程退出（code=" + code + "）", error = true)
             }
         }
     }
+
+    private fun belongsToSession(params: JsonObject): Boolean =
+        params.get("sessionId")?.takeIf { it.isJsonPrimitive }?.asString?.let { it == sessionId } == true
 
     private fun handleSessionEvent(params: JsonObject) {
         val type = params.get("type")?.asString ?: return
@@ -952,9 +1181,6 @@ class ZcodeSessionService(val project: Project) : Disposable {
                 info.inputJson = payload.getAsJsonObject("input")
                 info.filePath = filePathOf(info.name, info.inputJson)
                 toolCalls[id] = info
-                if (info.filePath != null && isFileTool(info.name)) {
-                    snapshotBeforeWrite(id, info.filePath!!)
-                }
                 fire { it.onToolCall(info) }
             }
         }
@@ -972,10 +1198,9 @@ class ZcodeSessionService(val project: Project) : Disposable {
                 info.summary = result?.get("content")?.takeIf { !it.isJsonNull }?.asString
                     ?.lineSequence()?.firstOrNull { it.isNotBlank() }?.take(200)
                 // 所有终态（成功/失败）都取走快照：失败的写操作不能把大块修改前内容一直留在内存
-                val snapshot = pendingSnapshots.remove(id)
-                if (success && info.filePath != null && isFileTool(info.name)) {
-                    registerChangedFile(info.filePath!!, info.name, snapshot?.second)
-                    refreshVfsFile(info.filePath!!)
+                if (info.filePath != null && isFileTool(info.name)) {
+                    snapshots.complete(id, resolveToolFile(info.filePath!!).path, info.name, success)
+                    if (success) refreshVfsFile(info.filePath!!)
                 }
             }
         }
@@ -984,6 +1209,9 @@ class ZcodeSessionService(val project: Project) : Disposable {
 
     private fun handleStateUpdated(params: JsonObject) {
         val patch = params.getAsJsonObject("patch") ?: return
+        patch.get("mode")?.takeIf { it.isJsonPrimitive }?.asString?.let { actual ->
+            syncMode(JsonObject().apply { add("session", JsonObject().apply { addProperty("mode", actual) }) })
+        }
         val status = patch.get("status")?.asString
         val reason = params.get("reason")?.asString
         log.info("state.updated: status=$status reason=$reason")
@@ -1002,6 +1230,11 @@ class ZcodeSessionService(val project: Project) : Disposable {
                 drainQueue()
             }
         }
+        if (reason == "compact_started") {
+            // /compact（手动压缩）作为一轮后台任务执行：走正常 turn 事件流，
+            // 结束后 pollContextUsage 会自动刷新"上下文 x/y"显示
+            notice("正在压缩上下文…（总结当前对话以释放上下文空间）", error = false)
+        }
         // 注意：prompt_completed 不再作为轮次结束信号。探针实测它跟在 turn.completed 之后，
         // 但用户环境的 runtime 会在轮次中途提前推送它——轮次结束一律以 turn.completed / idle 为准。
     }
@@ -1016,17 +1249,47 @@ class ZcodeSessionService(val project: Project) : Disposable {
         ApplicationManager.getApplication().invokeLater { pumpOnEdt() }
     }
 
-    @Suppress("UNCHECKED_CAST")
+    private fun denyPermission() = JsonObject().apply {
+        addProperty("decision", "deny")
+        addProperty("reason", "Session changed or request cancelled")
+    }
+
+    private fun validPermission(req: PermissionRequest): Boolean =
+        tasks.isCurrent(req.generation) && !project.isDisposed && req.connection.isAlive &&
+            activeSessionGeneration == req.generation &&
+            client === req.connection && sessionId == req.sessionId
+
+    private fun cancelPermissions() {
+        while (true) {
+            val req = permissionQueue.poll() ?: break
+            req.responder(denyPermission())
+        }
+        ApplicationManager.getApplication().invokeLater {
+            displayedPermission?.let { if (!validPermission(it)) permissionDialog?.doCancelAction() }
+        }
+    }
+
     private fun pumpOnEdt() {
         if (permissionDialogShowing) return
-        val req = permissionQueue.poll() ?: return
-        permissionDialogShowing = true
-        val params = req[1] as JsonObject
-        val responder = req[2] as (JsonObject?) -> Unit
-        val response = zcode.idea.ui.PermissionDialog(project, params).showAndGetResponse()
-        permissionDialogShowing = false
-        responder(response)
-        pumpOnEdt()
+        while (true) {
+            val req = permissionQueue.poll() ?: return
+            if (!validPermission(req)) { req.responder(denyPermission()); continue }
+            permissionDialogShowing = true
+            try {
+                val dialog = zcode.idea.ui.PermissionDialog(project, req.params)
+                permissionDialog = dialog
+                displayedPermission = req
+                val response = dialog.showAndGetResponse()
+                req.responder(if (validPermission(req)) response else denyPermission())
+            } catch (e: Exception) {
+                req.responder(denyPermission())
+                log.warn("工具审批失败", e)
+            } finally {
+                permissionDialog = null
+                displayedPermission = null
+                permissionDialogShowing = false
+            }
+        }
     }
 
     // ------------------------------------------------------------------ 文件追踪与 VFS
@@ -1044,28 +1307,11 @@ class ZcodeSessionService(val project: Project) : Disposable {
         return null
     }
 
-    private fun snapshotBeforeWrite(toolCallId: String, path: String) {
-        val file = File(path)
-        val content = if (file.isFile && file.length() < SINGLE_SNAPSHOT_LIMIT) {
-            runCatching { file.readText() }.getOrNull()
-        } else null
-        // 会话级总量上限：超预算后新快照降级为不缓存（diff 退化为无修改前内容），避免长会话内存膨胀。
-        // 按字符数近似估算（UTF-8 下实际字节数只多不少）
-        val used = pendingSnapshots.values.sumOf { it.second?.length ?: 0 }
-        val overBudget = used + (content?.length ?: 0) > TOTAL_SNAPSHOT_LIMIT
-        pendingSnapshots[toolCallId] = path to if (overBudget) null else content
-    }
-
-    private fun registerChangedFile(path: String, toolName: String, oldContent: String?, fromHistory: Boolean = false) {
-        synchronized(changedFiles) {
-            if (!changedFiles.containsKey(path)) {
-                changedFiles[path] = ChangedFile(path, oldContent, toolName, System.currentTimeMillis(), fromHistory)
-            }
-        }
-    }
+    private fun resolveToolFile(path: String): File =
+        File(path).let { if (it.isAbsolute) it else File(project.basePath ?: ".", path) }
 
     private fun refreshVfsFile(path: String) {
-        val ioFile = File(path)
+        val ioFile = resolveToolFile(path)
         ApplicationManager.getApplication().executeOnPooledThread {
             runCatching {
                 com.intellij.openapi.vfs.LocalFileSystem.getInstance().refreshIoFiles(listOf(ioFile))
@@ -1086,6 +1332,7 @@ class ZcodeSessionService(val project: Project) : Disposable {
     // ------------------------------------------------------------------ 杂项
 
     private fun setState(s: ConnectionState, detail: String?) {
+        tasks.checkCurrent()
         log.info("连接状态: $s${detail?.let { "（$it）" } ?: ""}")
         state = s
         // 离开运行链路（完成/出错/重置）即释放发送占位；STARTING 是冷启动中间态，不释放
@@ -1094,6 +1341,8 @@ class ZcodeSessionService(val project: Project) : Disposable {
             // 断连/进程退出后排队消息不再自动发送（避免反复触发重启重试），直接丢弃并告知
             if (s != ConnectionState.READY) {
                 turnActive = false
+                modeChanging = false
+                fire { it.onModeChanged(mode, false) }
                 clearQueue()
             }
         }
@@ -1102,8 +1351,14 @@ class ZcodeSessionService(val project: Project) : Disposable {
 
     private fun notice(text: String, error: Boolean) = fire { it.onNotice(text, error) }
 
+    private fun onEdt(generation: Long = tasks.token(), action: () -> Unit) {
+        ApplicationManager.getApplication().invokeLater {
+            if (isViewCurrent(generation)) action()
+        }
+    }
+
     private fun fire(f: (Listener) -> Unit) {
-        ApplicationManager.getApplication().invokeLater { listeners.forEach(f) }
+        onEdt { listeners.forEach(f) }
     }
 
     private fun describeError(e: Throwable): String = when (e) {
@@ -1117,15 +1372,12 @@ class ZcodeSessionService(val project: Project) : Disposable {
     }
 
     override fun dispose() {
+        disposed = true
+        tasks.close()
+        cancelPermissions()
         client?.close()
         client = null
-    }
-
-    private companion object {
-        /** 单文件快照上限（按字符近似）。 */
-        const val SINGLE_SNAPSHOT_LIMIT = 16L * 1024 * 1024
-
-        /** 会话内快照总内存预算（按字符近似）：超出后新快照不再缓存。 */
-        const val TOTAL_SNAPSHOT_LIMIT = 64L * 1024 * 1024
+        snapshots.clear()
+        listeners.clear()
     }
 }

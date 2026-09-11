@@ -30,19 +30,20 @@ class ResponsiveToolbarLayoutTest {
     private fun combo(w: Int): JComboBox<String> =
         JComboBox(arrayOf("x")).apply { preferredSize = Dimension(w, 26) }
 
-    /** 与 ChatPanel.buildToolbar 同构：8 个直接子组件，前 3 个为按钮组。 */
+    /** 与 ChatPanel.buildToolbar 同构：9 个直接子组件，前 4 个为按钮组。 */
     private fun buildToolbar(): JPanel {
         val items = listOf(
             button("新会话", 62),
             button("恢复", 50),
             button("变更文件 (12)", 102),
+            button("压缩", 56),
             label("● 就绪", 52),
             label("上下文 14k/1.0M", 106),
             combo(128),
             combo(84),
             combo(104),
         )
-        return JPanel(ResponsiveToolbarLayout(leftCount = 3)).apply {
+        return JPanel(ResponsiveToolbarLayout(leftCount = 4)).apply {
             border = JBUI.Borders.compound(
                 JBUI.Borders.empty(4, 10, 5, 10),
                 BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()),
@@ -97,9 +98,9 @@ class ResponsiveToolbarLayoutTest {
     @Test
     fun `wide toolbar stays single justified row`() {
         val panel = layoutAt(900)
-        assertEquals(List(8) { 0 }, rowOf(panel), "900px 应单行")
+        assertEquals(List(9) { 0 }, rowOf(panel), "900px 应单行")
         assertEquals(panel.insets.left, panel.getComponent(0).x, "按钮组应贴左边距")
-        val last = panel.getComponent(7)
+        val last = panel.getComponent(8)
         assertEquals(panel.width - panel.insets.right, last.x + last.width, "下拉组应贴右边距")
         assertTrue(allInside(panel))
     }
@@ -110,8 +111,8 @@ class ResponsiveToolbarLayoutTest {
         val rows = rowOf(panel)
         // 核心诉求：折行时不再"按钮一行/下拉一行"，而是整条流换行铺满——
         // 状态与上下文标签跟按钮同处第一行，模型下拉从第二行开始
-        assertEquals(rows[0], rows[4], "上下文标签应与按钮同在第一行")
-        assertEquals(rows[5], rows[0] + 1, "模型下拉应在下一行")
+        assertEquals(rows[0], rows[5], "上下文标签应与按钮同在第一行")
+        assertEquals(rows[6], rows[0] + 1, "模型下拉应在下一行")
         assertTrue(rowsFullyPacked(panel), "每个非末行都应塞满（无大片留白）")
         assertTrue(allInside(panel))
     }

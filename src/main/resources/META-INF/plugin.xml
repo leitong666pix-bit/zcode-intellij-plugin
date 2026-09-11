@@ -19,7 +19,7 @@
             <action id="Zcode.AttachSelection"
                     class="zcode.idea.actions.AttachSelectionAction"
                     text="引用选中代码到对话..."
-                    description="把选中的代码作为上下文引用，在 ZCode 对话框中继续提问"/>
+                    description="把选区以 @文件:行 引用记号插入输入框光标处（可多处引用、可放在文字任意位置，发送时展开）"/>
             <action id="Zcode.ExplainSelection"
                     class="zcode.idea.actions.ExplainSelectionAction"
                     text="解释选中的代码"

@@ -13,7 +13,7 @@
 |---|---|---|---|
 | `session/create` | `{workspace:{workspaceKey,workspacePath}, mode?:"build\|edit\|plan\|yolo", model?:{providerId,modelId}, persistence?}` | `{session:{sessionId,mode,model,status,...}, projection, runtime:{eventSeq,...}, settings, messages:[]}` | sessionId 在 `result.session.sessionId`；`model` 显式指定初始模型（须在 workspace 模型目录中，见下文「模型目录」）；首次 create 会先发两个 server 请求（见下） |
 | `session/subscribe` | `{sessionId, deliveryKind:"desktop-continuous"\|"web-remote-replayable", afterSeq?:int, includeSnapshot?:bool}` | `{eventSeq, events:[...], sessionId, snapshot?}` | **订阅后正文事件才通过 `session/event` 通知推送**；`afterSeq` **不传只推订阅后的新事件**，传了则回放该 seq 之后的历史事件（断线补播用——恢复会话场景传 0 会重放全部历史，UI 若再渲染转录就重复一遍）。`includeSnapshot:true` 时回复带完整快照，**`snapshot.runtime.contextUsage = {used, size, cost?, cache?, breakdown?}` 是当前上下文占用**（`size` = 模型上下文窗口，如 glm-5.3 的 1000000；空会话/首轮前该字段缺省）。重复 subscribe 无副作用（不回放事件），可当快照轮询用——工具栏"上下文 x/y"即每轮 turn.completed 后再 subscribe 一次取新值（实测 `used` 与 turn.completed 的 `usage.totalTokens` 一致） |
-| `session/send` | `{sessionId, content:<string>, inputId?}` | `{accepted:true, sessionId, stateRevision, modelRuntimeRevision}` | 发出即返回；后续走通知流。同 session 并发第二条会被拒（-32010）。**图片输入不走 `attachments` 字段**（见「图片输入」） |
+| `session/send` | `{sessionId, content:<string>, inputId?}` | `{accepted:true, sessionId, stateRevision, modelRuntimeRevision}` | 发出即返回；后续走通知流。同 session 并发第二条会被拒（-32010）。**content trim 后精确为 `/compact` 或 `/compact <说明>`（`/fork` 同理）会被 runtime 拦截执行，其余 `/xxx` 按普通 prompt 处理**（见「斜杠命令与手动压缩」）。**图片输入不走 `attachments` 字段**（见「图片输入」） |
 | `session/stop` | `{sessionId}` | — | 中止当前 turn |
 | `session/read` | `{sessionId}` | `{messages:[{info:{role,messageId,model,time,tokens,finish,...}, parts:[...]}]}` | 完整转录（恢复会话渲染用）。只对进程内活跃会话可用 |
 | `session/list` | `{workspace:{workspaceKey,workspacePath}, includeArchived?, limit?}` | `{sessions:[{sessionId,title,mode,status,createdAt,updatedAt,workspace}]}` | 按时间倒序。**没有 session/delete RPC**——删除须直删 sqlite（见「会话存储与删除」） |
@@ -43,6 +43,12 @@
 | `checkpoint.created` | `{checkpointId, scope, fileCount, diffRef}` — 伴随产生文件改动的工具出现 |
 | `turn.completed` | `{response, tokenCount, usage, toolCallCount, duration, resultType}` |
 | `session.updated` | `{messageCount, model, toolCount, iteration}` |
+
+### 正文引用与客户端导航
+
+助手正文继续通过 `model.streaming` 的 `text_delta` 增量以及历史转录中的文本内容传输。插件在渲染 Markdown 时识别文件引用（如 `Foo.java:336-347`），并在回答完成后通过 IDEA 索引解析类名、方法名等行内符号。
+
+`zcodefile:` 和 `zcodesymbol:` 是插件生成的 HTML 链接 scheme，由 UI 拦截后在 IDE 内导航；它们不是 app-server 的 RPC 方法、服务端 artifact 引用或新增消息字段。此功能不改变 `session/send`、`session/read` 和 `session/event` 的协议格式，也不要求服务端输出结构化定义位置。具体解析、候选选择和线程规则见 [ARCHITECTURE.md](ARCHITECTURE.md#73-正文代码引用导航)。
 
 ## server → client 请求（带 string id，如 "server-1"，必须回响应）
 
@@ -83,6 +89,14 @@ spawn node zcode.cjs app-server (cwd=项目根)
 - 正确姿势：**在消息文本里内嵌 Markdown 图片引用** `![名字](file:///C:/path/img.png)`（正斜杠本地路径亦可），runtime 解析后物化成图像内容块。多模态模型（glm-5.3-flash）实测能看到图并正确回答。
 - 非多模态模型（glm-5.3）：不报错不崩溃，runtime 在读文件时告知模型"当前模型不支持图像"，模型如实回答看不到（优雅降级）。
 - 能力标识：`workspace/readState` 返回的 `settings.model.available[].supportsImages`。注意 CLI 配置 `~/.zcode/cli/config.json` **没有** modalities 信息，缺省即 false——需从桌面端 `~/.zcode/v2/config.json` 的 `modalities.input` 合并后随 runtimeModel 推送。
+
+### 斜杠命令与手动压缩（bundle 静态逆向 + 探针实证）
+
+- **服务端只拦截两个命令**：`submitPrompt` 内 `xLr` 解析 content，trim 后精确 `/compact` / `/compact <说明>` → `executeManualCompact`；`bLr` 解析 `/fork [target]` → rewind。其余一切 `/xxx`（含 `/init` `/goal` `/plan`）都作为普通 prompt 文本交给模型。因此客户端发送拦截类命令必须**逐字原样**（不附加上下文/图片），否则匹配失败退化为普通提问。
+- **`session/compact` RPC 存在但插件不用**：params `{sessionId, instructions?, inputId?, expectedRevision?, runtimeModel?}`，result `{response, snapshot, compact?:{state:"accepted"|"already_running"}}`——它内部就是拼 `/compact` 文本提交（同一 `submitPrompt` 管线），且**轮次运行中会抛错**；直接把 `/compact` 文本当 `session/send` 发（可排队、走正常 turn 事件流）语义等价且与 CLI 一致，故插件选后者。另有独立 `session/compact` 不具备的排队能力免费获得。
+- **压缩是一轮正常 turn**：`state.updated{reason:"compact_started", patch:{status:"running"}}` → `turn.started` / `model.streaming`（总结文本流式输出）/ `turn.completed`。结束后再 subscribe 取快照，`contextUsage.used` 即降为压缩后值。runtime 自身有自动压缩（阈值 ~95% 或 contextWindow-13000，见 bundle `X1e`），客户端无须实现。
+- **命令清单来自快照**：`session/create` / `session/read` / `workspace/readState` 结果都带 `slashCommands:[{name, description, inputHint?, source:"builtin"|"custom"}]`；服务端暴露的 builtin 为 `goal`/`compact`/`init`/`plan`。
+- **自定义命令服务端不展开**（bundle `expandCliCustomCommandPrompt` 仅在 CLI 内）：客户端自己扫描 `.md`、展开后当普通 prompt 发送。扫描根（先命中优先）：`~/.zcode/commands` → `~/.agents/commands` → 项目目录自 base 向上到 git 根每级的 `.zcode/commands`、`.agents/commands`。名字规则 `^[a-z0-9][a-z0-9_:-]{0,63}$`（子目录映射 `review/code.md` → `review:code`），frontmatter 平铺键 `description/argument-hint/allowed-tools/model/skills/disable-noninteractive`；`$ARGUMENTS`（完整参数串）与 `$1`..`$9`（引号感知分词）展开；带参数但正文无占位符 → 追加 `User arguments:` 段。与内置命令（help/compact/model/new/… 含别名，另含 compress/plan）重名的自定义命令从交互列表过滤。
 
 ### 会话存储与删除
 

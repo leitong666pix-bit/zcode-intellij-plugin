@@ -84,21 +84,35 @@ class UserMessagePanel(text: String, contextBlock: String?) : JPanel(BorderLayou
     override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 }
 
-/** 助手消息：头部 + 可折叠思考过程 + Markdown 正文 + 脚注。 */
-class AssistantMessagePanel : JPanel(BorderLayout(0, 3)) {
+/**
+ * 助手消息：头部 + 可折叠思考区（思考文本与工具调用按到达顺序交错的时间线） + Markdown 正文 + 脚注。
+ * 正文（结论）始终在思考区之后；思考区默认折叠（标题实时显示"思考中 · N 字 · N 个工具"进度），
+ * 点击可随时展开查看，[done] 后标题定格为摘要、未手动点开过则保持折叠。
+ */
+class AssistantMessagePanel(
+    onOpenFileRef: (FileReference) -> Unit = {},
+    private val highlightCode: ((lang: String, code: String) -> String?)? = null,
+    onOpenSymbol: (String) -> Unit = {},
+    private val decorateSymbols: ((String, (String) -> Unit) -> Unit)? = null,
+) : JPanel(BorderLayout(0, 3)) {
 
     private val bodyBuf = StringBuilder()
     private val reasoningBuf = StringBuilder()
-    private val bodyPane = createChatHtmlPane()
-    // 思考区：灰字 + 左侧竖线引用样式，与正文（正常前景色）在视觉上明确区分
-    private val reasoningArea = readOnlyArea(ChatColors.dim).apply {
-        font = font.deriveFont(font.size2D - 1f)
-        border = BorderFactory.createCompoundBorder(
-            BorderFactory.createMatteBorder(0, 2, 0, 0, JBColor.border()),
-            JBUI.Borders.empty(0, 8),
-        )
+    private var toolCount = 0
+    private val bodyPane = createChatHtmlPane(onOpenFileRef, onOpenSymbol)
+    private var renderVersion = 0L
+    private var completed = false
+
+    /** 思考区时间线：思考文本段（灰字左竖线）与工具行按真实到达顺序交错堆叠。 */
+    private val timeline = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.PAGE_AXIS)
+        isOpaque = false
     }
-    private val thinking = CollapsibleSection("思考过程", reasoningArea).apply { isVisible = false }
+
+    /** 当前思考文本段：工具行插入后置空，后续思考另起一段，保住时间顺序。 */
+    private var currentSegment: WrappingTextArea? = null
+
+    private val thinking = CollapsibleSection("思考过程", timeline).apply { isVisible = false }
     private val footer = JBLabel("").apply {
         foreground = ChatColors.dim
         font = JBFont.label().biggerOn(-1f)
@@ -129,27 +143,79 @@ class AssistantMessagePanel : JPanel(BorderLayout(0, 3)) {
 
     fun appendReasoning(delta: String) {
         reasoningBuf.append(delta)
-        reasoningArea.append(delta)
+        val seg = currentSegment ?: newReasoningSegment().also {
+            currentSegment = it
+            addTimelineChild(it)
+        }
+        seg.append(delta)
+        showThinking()
+    }
+
+    /** 工具行进思考区时间线：此后的思考文本另起一段，保持“思考→工具→思考”的真实顺序。 */
+    fun addToolCall(row: JComponent) {
+        toolCount++
+        currentSegment = null
+        addTimelineChild(row)
+        showThinking()
+    }
+
+    private fun addTimelineChild(child: JComponent) {
+        if (timeline.componentCount > 0) timeline.add(Box.createVerticalStrut(3))
+        child.alignmentX = Component.LEFT_ALIGNMENT
+        timeline.add(child)
+        revalidate()
+    }
+
+    /** 新思考文本段：灰字 + 左侧竖线引用样式，与正文（正常前景色）视觉区分。 */
+    private fun newReasoningSegment(): WrappingTextArea = readOnlyArea(ChatColors.dim).apply {
+        font = font.deriveFont(font.size2D - 1f)
+        border = BorderFactory.createCompoundBorder(
+            BorderFactory.createMatteBorder(0, 2, 0, 0, JBColor.border()),
+            JBUI.Borders.empty(0, 8),
+        )
+    }
+
+    private fun showThinking() {
         thinking.isVisible = true
-        if (!thinking.userToggled) thinking.setExpanded(true)
+        // 默认折叠：标题实时更新进度给反馈即可；用户点开后（userToggled）保持其选择，收尾也不强收
+        thinking.setTitle(streamingTitle())
+    }
+
+    private fun streamingTitle(): String = buildString {
+        append("思考中")
+        if (reasoningBuf.isNotEmpty()) append(" · ${reasoningBuf.length} 字")
+        if (toolCount > 0) append(" · $toolCount 个工具")
+    }
+
+    private fun doneTitle(): String = buildString {
+        append("已深度思考")
+        if (reasoningBuf.isNotEmpty()) append(" · ${reasoningBuf.length} 字")
+        if (toolCount > 0) append(" · $toolCount 个工具")
     }
 
     fun appendText(delta: String) {
+        completed = false
         bodyBuf.append(delta)
         if (!flushTimer.isRunning) flushTimer.start()
     }
 
     private fun flushBody() {
-        bodyPane.setText("<html><body>${Markdown.toHtml(bodyBuf.toString())}</body></html>")
+        val version = ++renderVersion
+        val html = "<html><body>" + Markdown.toHtml(bodyBuf.toString(), highlightCode) + "</body></html>"
+        bodyPane.text = html
+        if (completed) decorateSymbols?.invoke(html) { decorated ->
+            if (version == renderVersion) bodyPane.text = decorated
+        }
     }
 
     /** turn 结束：停止刷新、收起思考区、显示脚注。 */
     fun done(summary: String?) {
+        completed = true
         if (flushTimer.isRunning) flushTimer.stop()
         flushBody()
-        if (reasoningBuf.isNotBlank()) {
-            thinking.setExpanded(false)
-            thinking.setTitle("已深度思考 · ${reasoningBuf.length} 字")
+        if (reasoningBuf.isNotEmpty() || toolCount > 0) {
+            if (!thinking.userToggled) thinking.setExpanded(false)
+            thinking.setTitle(doneTitle())
         }
         if (!summary.isNullOrBlank()) {
             footer.text = summary

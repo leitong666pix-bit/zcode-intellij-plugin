@@ -108,4 +108,49 @@ object SelectionContext {
         } else selection
         sb.append("用户选中的代码:\n```").append(lang).append('\n').append(trimmed).append("\n```\n")
     }
+
+    // ------------------------------------------------------------------ 输入框内嵌引用记号
+
+    /** 引用记号（使用完整相对路径区分同名文件）：`@文件名:起始行-结束行`（如 `@Foo.java:141-160`），插在输入文本光标处，发送时展开。 */
+    fun refTokenOf(info: Info): String {
+        val name = (info.relativePath ?: info.activeFile?.path ?: "选区").replace('\\', '/')
+        val start = info.startLine
+        val end = info.endLine
+        return if (start != null && end != null) "@$name:$start-$end" else "@$name"
+    }
+
+    /**
+     * 内联引用块（发送时替换记号用）：不带 [CONTEXT_MARKER]——它长在消息正文中间而非末尾，
+     * 带标记会破坏 [splitContext] 的"首个标记即上下文块"约定。
+     */
+    fun buildInlineQuote(info: Info, maxSelectionChars: Int): String {
+        val selection = info.selectionText ?: return ""
+        val lang = info.activeFile?.extension ?: ""
+        val trimmed = if (selection.length > maxSelectionChars) {
+            selection.take(maxSelectionChars) + "\n…（已截断，完整内容请自行读取文件）"
+        } else selection
+        val where = info.relativePath ?: info.activeFile?.path ?: ""
+        val lines = if (info.startLine != null && info.endLine != null) "第${info.startLine}-${info.endLine}行" else ""
+        return buildString {
+            append("引用 ").append(where).append(' ').append(lines).append("：\n")
+            append("```").append(lang).append('\n').append(trimmed).append("\n```")
+        }
+    }
+
+    /**
+     * 把文本中**已登记**的引用记号替换为内联引用块（按记号长度降序，防前缀互含）。
+     * 用户手打的未登记 `@xxx:1-2` 原样保留（记号本身仍含文件名与行号信息，模型可自行读取）。
+     * 返回 null 表示没有任何替换发生（调用方可走普通发送路径）。
+     */
+    fun substituteRefs(text: String, refs: Map<String, Info>, maxSelectionChars: Int): String? {
+        if (refs.isEmpty()) return null
+        var result = text
+        var replaced = false
+        for ((token, info) in refs.entries.sortedByDescending { it.key.length }) {
+            if (!result.contains(token)) continue
+            result = result.replace(token, buildInlineQuote(info, maxSelectionChars))
+            replaced = true
+        }
+        return if (replaced) result else null
+    }
 }
